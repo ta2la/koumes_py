@@ -461,6 +461,18 @@ class CmdsChroma:
             return 0
         sys_.add("chroma_screenshot", chroma_screenshot, category="chroma")
 
+        def _widen_if_needed(parent: str) -> bool:
+            fs = FsBridge.inst()
+            if fs is None:
+                return True
+            if fs.is_inside(parent, fs.allowed_dir_):
+                return True
+            if not fs.set_allowed_root(parent):
+                return False
+            if cls._bus is not None:
+                cls._bus.notify_sandbox_changed(fs.allowed_dir_)
+            return True
+
         def dir_up(args, data, ctx):
             d = cls._last_dir
             if not d:
@@ -470,6 +482,8 @@ class CmdsChroma:
                 return args.append_error("dir_up: already at root")
             if cls._bus is None:
                 return args.append_error("dir_up: bus not set")
+            if not _widen_if_needed(parent):
+                return args.append_error(f"dir_up: cannot widen sandbox to {parent}")
             cls._bus.notify_dir_change(parent)
             args.append(parent, "DIR")
             return 0
@@ -484,6 +498,8 @@ class CmdsChroma:
                 return args.append_error("reveal_dir: no parent")
             if cls._bus is None:
                 return args.append_error("reveal_dir: bus not set")
+            if not _widen_if_needed(parent):
+                return args.append_error(f"reveal_dir: cannot widen sandbox to {parent}")
             cls._bus.notify_dir_change(parent)
             args.append(parent, "DIR")
             return 0

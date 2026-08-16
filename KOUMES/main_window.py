@@ -36,6 +36,28 @@ from PyQt6.QtWidgets import (
 
 from cmd_sys import CMD_SYS
 
+
+def _path_from_index(abs_: str, root: str) -> str:
+    """Shorten abs to '<sandbox>/rel'. Outside sandbox -> full abs path."""
+    if not abs_:
+        return abs_
+    abs_c = os.path.normpath(os.path.abspath(abs_))
+    root_c = os.path.normpath(os.path.abspath(root))
+    if not abs_c.startswith(root_c):
+        return abs_c
+    root_base = os.path.basename(root_c) or root_c
+    rel = abs_c[len(root_c):].lstrip(os.sep)
+    return root_base if not rel else f"{root_base}/{rel}"
+
+
+def _is_outside_sandbox(abs_: str, root: str) -> bool:
+    if not abs_:
+        return False
+    abs_c = os.path.normpath(os.path.abspath(abs_))
+    root_c = os.path.normpath(os.path.abspath(root))
+    return not abs_c.startswith(root_c)
+
+
 from .chroma_page import ChromaPage
 from .chroma_www_page import ChromaWwwPage
 from .cmds_chroma import CmdsChroma
@@ -249,6 +271,21 @@ class MainWindow(QMainWindow):
         self.bus.fileSelectedRightmost.connect(self._on_file_selected_rightmost)
         self.bus.wwwUrlRequested.connect(self._on_www_url_requested)
         self.bus.selectionChanged.connect(self._on_selection_changed)
+        self.bus.panelShow.connect(self._on_panel_show)
+
+    def _on_panel_show(self, panel: str, file: str, viewer: str) -> None:
+        if panel == "dir":
+            if os.path.isdir(file):
+                self._load_dir(file)
+        elif panel == "p1":
+            if os.path.isfile(file):
+                self._on_file_selected(file)
+        elif panel == "p2":
+            if os.path.isfile(file):
+                self._on_file_selected_rightmost(file)
+        elif panel == "left":
+            if os.path.isfile(file):
+                self.left_view.setUrl(QUrl.fromLocalFile(file))
 
     def _load_dir(self, path: str) -> None:
         if not os.path.isdir(path):
@@ -262,8 +299,25 @@ class MainWindow(QMainWindow):
         else:
             url = QUrl.fromLocalFile(path)
         self.mid_view.setUrl(url)
-        self.p_mid.info_path.setText(path)
+        self._set_info_path(self.p_mid.info_path, path)
         self.p_mid.info_viewer.setText("dirs" if html else "native")
+
+        if html:
+            parent = os.path.dirname(path) or path
+            purl = QUrl.fromLocalFile(html)
+            purl.setQuery(f"start={parent}&role=parent")
+            self.left_view.setUrl(purl)
+            self._set_info_path(self.p_left.info_path, parent)
+            self.p_left.info_viewer.setText("dirs")
+
+    def _set_info_path(self, label, abs_path: str) -> None:
+        label.setText(_path_from_index(abs_path, self.root))
+        label.setToolTip(abs_path)
+        outside = _is_outside_sandbox(abs_path, self.root)
+        label.setStyleSheet(
+            "color: #f87171; font-weight: 700;" if outside
+            else "color: #f9fafb; font-weight: 700;"
+        )
 
     def _on_dir_changed(self, path: str) -> None:
         if path == CmdsChroma._last_dir:
@@ -292,14 +346,14 @@ class MainWindow(QMainWindow):
         CmdsChroma.set_last_file_viewer(viewer)
         self.p_right.info_viewer.setText(viewer)
         self.detail_view.setUrl(self._resolve_view_url(path, role="detail"))
-        self.p_right.info_path.setText(path)
+        self._set_info_path(self.p_right.info_path, path)
         CmdsChroma.set_sel_file("p1", path)
 
     def _on_file_selected_rightmost(self, path: str) -> None:
         if not os.path.isfile(path):
             return
         self.rm_view.setUrl(self._resolve_view_url(path, role="rightmost"))
-        self.p_rm.info_path.setText(path)
+        self._set_info_path(self.p_rm.info_path, path)
         CmdsChroma.set_sel_file("p2", path)
 
     def _on_www_url_requested(self, url: QUrl, source: str) -> None:
@@ -307,10 +361,21 @@ class MainWindow(QMainWindow):
         target.setUrl(url)
 
     def _on_selection_changed(self, panel: str, file: str, line: int) -> None:
-        text = f"{file}:{line}" if line else file
+        short = _path_from_index(file, self.root) if file else ""
+        text = f"{short}:{line}" if line else short
+        label = None
         if panel == "dir":
-            self.p_mid.info_selection.setText(text)
+            label = self.p_mid.info_selection
         elif panel == "p1":
-            self.p_right.info_selection.setText(text)
+            label = self.p_right.info_selection
         elif panel == "p2":
-            self.p_rm.info_selection.setText(text)
+            label = self.p_rm.info_selection
+        if label is None:
+            return
+        label.setText(text)
+        label.setToolTip(file)
+        outside = _is_outside_sandbox(file, self.root)
+        label.setStyleSheet(
+            "color: #f87171; font-weight: 400;" if outside
+            else "color: #9ca3af; font-weight: 400;"
+        )
