@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "koumes"
+version = "0.1.0"
+description = "koumes - editor / dir browser / t2l viewer / command console"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Petr Talla", email = "petr.talla@gmail.com" },
+]
+license = { text = "Apache-2.0" }
+keywords = ["editor", "t2l", "command", "koumes"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Text Editors",
+]
+dependencies = [
+    "PyQt6>=6.5",
+    "PyQt6-WebEngine>=6.5",
+    "websockets>=11",
+]
+
+[project.urls]
+Homepage = "https://koumes.com"
+
+[project.scripts]
+koumes = "KOUMES.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["cmd_sys*", "KOUMES*"]

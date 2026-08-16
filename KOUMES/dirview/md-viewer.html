@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<title>md viewer</title>
+<style>
+  body { font: 16px/1.6 system-ui, sans-serif; max-width: 760px; margin: 1rem auto;
+         padding: 0 1rem 80px; color: #222; }
+  p { margin: 0 0 1em; }
+  .w { cursor: pointer; padding: 0 1px; border-radius: 2px; }
+  .w:hover { background: #eef2f7; }
+  .w.sel { background: #fde68a; }
+  .w.diff-add { background: #86efac; padding: 1px 4px; border-radius: 3px; }
+  .w.diff-add.sel { background: #fde68a; }
+  .diff-rm { background: #fecaca; color: #7f1d1d; text-decoration: line-through;
+             padding: 1px 4px; border-radius: 3px; margin: 0 2px; }
+  .md-img { display: block; width: 100%; max-width: 600px; margin: 1em 0; border-radius: 6px; }
+  code { font-family: ui-monospace, Menlo, Consolas, monospace; background: #f3f4f6; padding: 1px 5px; border-radius: 3px; font-size: 0.92em; }
+  pre { background: #f3f4f6; padding: 12px 16px; border-radius: 6px; overflow-x: auto; font-size: 0.92em; line-height: 1.45; }
+  pre code { background: none; padding: 0; border-radius: 0; }
+  .err { color: #b00; padding: 1em; }
+  .bar { position: fixed; bottom: 0; left: 0; right: 0; background: #fff;
+         border-top: 1px solid #ddd; padding: 8px 16px;
+         display: flex; align-items: center; gap: 12px;
+         font: 14px/1.4 system-ui, sans-serif; }
+  .bar .info { color: #555; font-family: monospace; font-size: 12px; flex: 1; white-space: pre-wrap; word-break: break-word; max-height: 80px; overflow-y: auto; }
+  .bar button { padding: 6px 16px; background: #2563eb; color: white; border: 0;
+                border-radius: 4px; font: inherit; cursor: pointer; }
+  .bar button:disabled { background: #9ca3af; cursor: default; }
+  .bar button.toast { background: #16a34a; }
+</style>
+</head>
+<body>
+<div id="content"></div>
+<div class="bar">
+  <span class="info" id="info">Nic není vybráno</span>
+  <button id="copy" disabled>Copy</button>
+  <button id="reload" title="Znovu načíst z disku přes dirs">↻ Reload</button>
+</div>
+<script>
+(function () {
+  var params = new URLSearchParams(location.search);
+  var filePath = params.get('file');
+  var $content = document.getElementById('content');
+  var $info = document.getElementById('info');
+  var $copy = document.getElementById('copy');
+  var $reload = document.getElementById('reload');
+  if (!filePath) {
+    $content.innerHTML = '<p class="err">Chybí ?file=… parametr</p>';
+    return;
+  }
+  document.title = 'md: ' + filePath.split('/').pop();
+  // <base> tag, aby se relativní src obrázků (img1.png) resolvovaly k dir článku, ne k viewer.html
+  var fileDir = filePath.substring(0, filePath.lastIndexOf('/') + 1);
+  var baseHref = (location.protocol === 'file:') ? 'file://' + fileDir : fileDir;
+  var baseEl = document.createElement('base');
+  baseEl.href = baseHref;
+  document.head.insertBefore(baseEl, document.head.firstChild);
+
+  function escHtml(s) {
+    return s.replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function parse(md) {
+    // Sken po řádcích — ```fence``` může obsahovat prázdné řádky.
+    var lines = md.split('\n');
+    var blocks = [];
+    var i = 0;
+    while (i < lines.length) {
+      var line = lines[i];
+      var fence = line.match(/^```(\w*)\s*$/);
+      if (fence) {
+        var lang = fence[1] || '';
+        var code = [];
+        i++;
+        while (i < lines.length && !/^```\s*$/.test(lines[i])) { code.push(lines[i]); i++; }
+        i++;  // skip closing ```
+        blocks.push({ code: { lang: lang, text: code.join('\n') } });
+        continue;
+      }
+      if (line.trim() === '') { i++; continue; }
+      var para = [];
+      while (i < lines.length && lines[i].trim() !== '' && !/^```/.test(lines[i])) {
+        para.push(lines[i]); i++;
+      }
+      var b = para.join('\n').trim();
+      if (!b) continue;
+      var imgMd = b.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+      if (imgMd) { blocks.push({ rawHtml: '<img class="md-img" src="' + imgMd[2] + '" alt="' + imgMd[1] + '">' }); continue; }
+      if (/^<img\b[^>]*>$/i.test(b)) { blocks.push({ rawHtml: b }); continue; }
+      var heading = /^#{1,6}\s+/.test(b);
+      var body = b.replace(/^#{1,6}\s+/, '');
+      var parts = body.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map(function (part) {
+        if (/^\*\*[^*]+\*\*$/.test(part)) return { tag: 'strong', text: part.slice(2, -2) };
+        if (/^`[^`]+`$/.test(part)) return { tag: 'code', text: part.slice(1, -1) };
+        return { tag: null, text: part };
+      });
+      blocks.push({ heading: heading, parts: parts });
+    }
+    return blocks;
+  }
+
+  // Vrátí list textových tokenů z bloku (= slova, bez whitespace).
+  function blockWords(blk) {
+    if (blk.rawHtml || blk.code) return [];
+    var arr = [];
+    blk.parts.forEach(function (part) {
+      part.text.split(/\s+/).forEach(function (t) { if (t) arr.push(t); });
+    });
+    return arr;
+  }
+  // LCS-based diff. Vrátí { isAdded: bool[], removedBefore: { newIdx: [words] } }
+  function diffActions(oldArr, newArr) {
+    var m = oldArr.length, n = newArr.length;
+    var dp = [];
+    for (var i = 0; i <= m; i++) { dp.push(new Array(n + 1).fill(0)); }
+    for (var i = m - 1; i >= 0; i--) {
+      for (var j = n - 1; j >= 0; j--) {
+        if (oldArr[i] === newArr[j]) dp[i][j] = dp[i + 1][j + 1] + 1;
+        else dp[i][j] = Math.max(dp[i + 1][j], dp[i][j + 1]);
+      }
+    }
+    var isAdded = new Array(n).fill(false);
+    var removedBefore = {};
+    var pending = [];
+    var ii = 0, jj = 0;
+    function flushPending(atNew) {
+      if (!pending.length) return;
+      removedBefore[atNew] = pending;
+      pending = [];
+    }
+    while (ii < m || jj < n) {
+      if (ii < m && jj < n && oldArr[ii] === newArr[jj]) {
+        flushPending(jj);
+        ii++; jj++;
+      } else if (jj < n && (ii >= m || dp[ii][jj + 1] >= dp[ii + 1][jj])) {
+        flushPending(jj);
+        isAdded[jj] = true;
+        jj++;
+      } else {
+        pending.push(oldArr[ii]);
+        ii++;
+      }
+    }
+    flushPending(n);  // trailing removed
+    return { isAdded: isAdded, removedBefore: removedBefore };
+  }
+
+  // Spojí slova ze všech bloků do jedné posloupnosti — pro document-wide LCS.
+  function flatWords(blocks) {
+    var arr = [];
+    blocks.forEach(function (blk) { blockWords(blk).forEach(function (w) { arr.push(w); }); });
+    return arr;
+  }
+
+  function render(blocks, oldBlocks) {
+    var diff = oldBlocks ? diffActions(flatWords(oldBlocks), flatWords(blocks)) : null;
+    var globalIdx = 0;
+    function rmHtml(words) {
+      return words.map(function (w) { return '<span class="diff-rm">' + escHtml(w) + '</span>'; }).join(' ');
+    }
+    var html = '';
+    blocks.forEach(function (blk, pIdx) {
+      var pNum = pIdx + 1;
+      if (blk.rawHtml) {
+        html += '<p>' + blk.rawHtml + '</p>';
+        return;
+      }
+      if (blk.code) {
+        html += '<pre><code>' + escHtml(blk.code.text) + '</code></pre>';
+        return;
+      }
+      var open = blk.heading ? '<p><strong>' : '<p>';
+      var close = blk.heading ? '</strong></p>' : '</p>';
+      var wIdx = 0;
+      var inner = blk.parts.map(function (part) {
+        var tokens = part.text.split(/(\s+)/);
+        return tokens.map(function (tok) {
+          if (/^\s+$/.test(tok)) return escHtml(tok);
+          if (!tok) return '';
+          wIdx++;
+          var prefix = '';
+          if (diff && diff.removedBefore[globalIdx]) {
+            prefix = rmHtml(diff.removedBefore[globalIdx]) + ' ';
+          }
+          var isAdded = diff && diff.isAdded[globalIdx];
+          globalIdx++;
+          var cls = 'w' + (isAdded ? ' diff-add' : '');
+          var span = '<span class="' + cls + '" data-p="' + pNum + '" data-w="' + wIdx + '">' + escHtml(tok) + '</span>';
+          var wrapped = part.tag === 'strong' ? '<strong>' + span + '</strong>'
+                      : part.tag === 'code'   ? '<code>' + span + '</code>'
+                      : span;
+          return prefix + wrapped;
+        }).join('');
+      }).join('');
+      // trailing removed (po posledním new slově dokumentu)
+      if (diff && diff.removedBefore[flatWords(blocks).length] && globalIdx === flatWords(blocks).length) {
+        inner += ' ' + rmHtml(diff.removedBefore[flatWords(blocks).length]);
+      }
+      html += open + inner + close;
+    });
+    return html;
+  }
+
+  // obsah md primárně z URL hash (#md=...) — pošle dirs.html přes FSA;
+  // fallback: fetch (funguje jen na http://)
+  var lastBlocks = null;
+  function showRendered(md, isReload) {
+    var blocks = parse(md);
+    $content.innerHTML = render(blocks, isReload ? lastBlocks : null);
+    lastBlocks = blocks;
+    setupSelection();
+  }
+  var hashMd = location.hash.match(/^#md=([\s\S]*)$/);
+  if (hashMd) {
+    try { showRendered(decodeURIComponent(hashMd[1])); }
+    catch (e) { $content.innerHTML = '<p class="err">Hash decode selhal: ' + escHtml(e.message) + '</p>'; }
+  } else {
+    fetch(filePath).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.text();
+    }).then(showRendered).catch(function (e) {
+      $content.innerHTML = '<p class="err">Načtení selhalo: ' + escHtml(e.message) +
+                            '<br>' + escHtml(filePath) + '<br>(file:// fetch je v Chrome blokovaný — pošli obsah přes #md=…)</p>';
+    });
+  }
+
+  var selAnchor = null;  // fixní kotva (první klik)
+  var selOther  = null;  // poslední klik (může být před nebo za)
+  function cmp(a, b) { return a.p !== b.p ? a.p - b.p : a.w - b.w; }
+  function lo() { return (selOther && cmp(selOther, selAnchor) < 0) ? selOther : selAnchor; }
+  function hi() { return (selOther && cmp(selOther, selAnchor) > 0) ? selOther : selAnchor; }
+
+  function setupSelection() {
+    document.querySelectorAll('.w').forEach(function (span) {
+      span.addEventListener('click', function () {
+        var here = { p: +span.dataset.p, w: +span.dataset.w };
+        if (selAnchor === null) {
+          selAnchor = here; selOther = null;
+        } else if (cmp(lo(), hi()) === 0 && cmp(here, selAnchor) === 0) {
+          // aktuálně vybráno právě jedno slovo a klik je na něm → deselect
+          selAnchor = null; selOther = null;
+        } else {
+          selOther = here;
+        }
+        updateUI();
+      });
+    });
+  }
+
+  function buildMsg() {
+    var L = lo(), H = hi();
+    var words = [];
+    document.querySelectorAll('.w.sel').forEach(function (s) { words.push(s.textContent); });
+    var text = words.join(' ');
+    var range = (cmp(L, H) === 0)
+      ? 'w' + L.w
+      : (L.p === H.p
+         ? 'w' + L.w + '-' + H.w
+         : 'w' + L.w + ' – ¶' + H.p + ' w' + H.w);
+    return '[md: ' + filePath + '  ¶' + L.p + ' ' + range + ']\n"' + text + '"';
+  }
+
+  function updateUI() {
+    document.querySelectorAll('.w').forEach(function (s) { s.classList.remove('sel'); });
+    if (!selAnchor) {
+      $info.textContent = 'Nic není vybráno';
+      $copy.disabled = true;
+      return;
+    }
+    var L = lo(), H = hi();
+    document.querySelectorAll('.w').forEach(function (s) {
+      var here = { p: +s.dataset.p, w: +s.dataset.w };
+      if (cmp(here, L) >= 0 && cmp(here, H) <= 0) s.classList.add('sel');
+    });
+    $info.textContent = buildMsg();
+    $copy.disabled = false;
+  }
+
+  // Reload: zeptej se opener (dirs) na čerstvý obsah md
+  $reload.addEventListener('click', function () {
+    if (!window.opener) {
+      $info.textContent = 'Reload nejde — opener (dirs.html) tab je zavřený.';
+      return;
+    }
+    window.opener.postMessage({ type: 'reloadMd', file: filePath }, '*');
+  });
+  window.addEventListener('message', function (e) {
+    var msg = e.data;
+    if (msg && msg.type === 'mdContent') {
+      selAnchor = null; selOther = null;
+      showRendered(msg.content, true);  // isReload = true → highlight diff
+      updateUI();
+    }
+  });
+
+  $copy.addEventListener('click', function () {
+    if (!selAnchor) return;
+    var msg = buildMsg();
+    navigator.clipboard.writeText(msg).then(function () {
+      $copy.classList.add('toast');
+      $copy.textContent = 'Zkopírováno ✓';
+      setTimeout(function () {
+        $copy.classList.remove('toast'); $copy.textContent = 'Copy';
+      }, 1400);
+    });
+  });
+})();
+</script>
+</body>
+</html>

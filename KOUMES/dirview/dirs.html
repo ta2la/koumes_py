@@ -1,0 +1,1286 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>koumes</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E👁%3C/text%3E%3C/svg%3E">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; height: 100vh; font: 14px/1.5 system-ui, sans-serif; color: #111827;
+         background: #f6f7f9; display: flex; flex-direction: column; }
+
+  header { padding: 8px 16px; background: #fff; border-bottom: 1px solid #e1e4e8;
+           display: flex; flex-direction: column; gap: 4px; flex: none; }
+  header .row1 { display: flex; align-items: baseline; gap: 16px;
+                 white-space: nowrap; overflow: hidden; }
+  header h1 { font-size: 18px; margin: 0; flex: none; }
+  .root-bar { font-size: 13px; color: #2563eb; cursor: pointer; text-decoration: none;
+              font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin-left: auto; }
+  .root-bar::before { content: attr(data-path); }
+  .root-bar:hover { color: #1d4ed8; }
+  .crumb { font-size: 13px; color: #374151; display: flex; flex-wrap: nowrap; gap: 4px;
+           align-items: center; overflow: hidden; white-space: nowrap; }
+  .crumb a { color: #2563eb; cursor: pointer; text-decoration: none; }
+  .crumb a:hover { text-decoration: underline; }
+  .crumb .cur   { font-weight: 700; }
+  .crumb .sep { color: #9ca3af; }
+
+  main { flex: 1; display: grid; grid-template-columns: 1fr; min-height: 0; }
+  .col { background: #fff; border-right: 1px solid #e1e4e8;
+         display: flex; flex-direction: column; overflow: hidden; }
+  .col:last-child { border-right: 0; }
+  #control-bar { display: flex; align-items: stretch; gap: 8px;
+                 padding: 4px 8px; background: #fff;
+                 border-bottom: 1px solid #e1e4e8; flex: none; }
+  #control-bar[hidden] { display: none; }
+  .back-btn { padding: 4px 14px; cursor: pointer; background: #fff;
+              border: 1px solid #d1d5db; border-radius: 4px; line-height: 1;
+              display: flex; align-items: center; flex: none; }
+  .back-btn:not(:disabled):hover { background: #eef0f3; }
+  .back-btn:disabled { opacity: 0.4; cursor: default; }
+  .filter-frame { flex: 1; display: flex; align-items: stretch;
+                  border: 1px solid #d1d5db; border-radius: 4px;
+                  background: #fff; overflow: hidden; font-size: 12px; }
+  .filter-frame .filter-label { color: #6b7280; padding: 4px 2px 4px 8px;
+                                flex: none; align-self: center; }
+  .filter-frame input { flex: 1; font: inherit; font-size: 12px;
+                        padding: 4px 6px; border: 0; background: transparent;
+                        min-width: 0; outline: none; }
+  .filter-frame button.tg { padding: 0 8px; font-size: 13px; cursor: pointer;
+                            background: transparent; border: 0;
+                            border-left: 1px solid #e5e7eb; line-height: 1; }
+  .filter-frame button.tg.on { background: #dbeafe; }
+  .filter-frame button.tg.off { opacity: 0.4; }
+  #sub-panel { background: #f9fafb; border-bottom: 1px solid #e1e4e8;
+               padding: 8px 12px; flex: none; font-size: 13px; color: #374151; }
+  #sub-panel[hidden] { display: none; }
+  #sub-panel .hotdirs { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  #sub-panel .hotdir { color: #2563eb; cursor: pointer; text-decoration: underline;
+                       font-size: 13px; display: inline-flex; align-items: center; gap: 4px; }
+  #sub-panel .hotdir:hover { color: #1d4ed8; }
+  #sub-panel .hotdir.disabled { color: #9ca3af; cursor: default; text-decoration: none; opacity: 0.6; }
+  #sub-panel .hotdir.close { color: #6b7280; margin-left: auto; text-decoration: none; }
+  #sub-panel .hotdir.close:hover { color: #111827; }
+  #sub-panel .hotdir.root-rm { color: #dc2626; text-decoration: none; padding: 0 4px; }
+  #sub-panel .hotdir.root-rm:hover { color: #991b1b; background: #fee2e2; border-radius: 3px; }
+  #sub-panel .root-time { color: #9ca3af; font-size: 11px; padding: 0 4px; align-self: center; }
+  #sub-panel .hotdir.clean { color: #dc2626; margin-left: 16px; }
+  #sub-panel .hotdir.clean:hover { color: #991b1b; }
+  .col-arrow { padding: 4px 12px; text-align: center; color: #6b7280; font-size: 14px;
+               cursor: pointer; background: #f9fafb; user-select: none; flex: none; }
+  .col-arrow:hover { color: #111827; background: #eef0f3; }
+  .col-arrow.disabled { color: #d1d5db; cursor: default; background: #f9fafb; }
+  .col-arrow.up   { border-bottom: 1px solid #e1e4e8; }
+  .col-arrow.down { border-top: 1px solid #e1e4e8; }
+  .col-entries { flex: 1; overflow-y: auto; min-height: 0;
+                 scrollbar-width: none; -ms-overflow-style: none; }
+  .col-entries::-webkit-scrollbar { width: 0; height: 0; display: none; }
+  /* Hide scrollbars globally — Qt WebEngine sometimes shows outer scrollbar. */
+  * { scrollbar-width: none; -ms-overflow-style: none; }
+  *::-webkit-scrollbar { width: 0; height: 0; display: none; }
+  .col-footer { padding: 4px 12px; text-align: center; font-size: 11px;
+                color: #9ca3af; background: #f9fafb; border-top: 1px solid #e1e4e8; flex: none; }
+  .crumb a.shortcut { margin-left: auto; font-size: 13px; color: #2563eb;
+                      font-weight: normal; text-decoration: underline; }
+  .crumb a.shortcut ~ a.shortcut { margin-left: 12px; }
+  .crumb a.shortcut:hover { color: #1d4ed8; }
+  .entry { padding: 6px 12px; cursor: pointer; display: flex; align-items: center; gap: 8px;
+           border-bottom: 1px solid #f3f4f6; }
+  .entry:hover { background: #f3f4f6; }
+  .entry.dir { font-weight: 500; }
+  .entry.file { color: #4b5563; }
+  .entry.active { background: #dbeafe; color: #1e40af; }
+  .entry.selected { background: #fde8d2; color: #92400e; }
+  .ico { width: 16px; text-align: center; flex: none; }
+  .empty-note { padding: 10px 12px; color: #9ca3af; font-size: 13px; }
+
+  .pick-screen { flex: 1; display: flex; align-items: center; justify-content: center;
+                 color: #6b7280; text-align: center; }
+  .pick-screen[hidden] { display: none; }
+
+  /* modální dialog pro zadání absolutní cesty */
+  .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100;
+                display: flex; align-items: center; justify-content: center; }
+  .modal-box { background: #fff; padding: 24px; border-radius: 8px;
+               min-width: 460px; max-width: 640px;
+               box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+               font: 14px/1.5 system-ui, sans-serif; }
+  .modal-box p { margin: 0 0 12px; }
+  .modal-hint { font-size: 13px; color: #6b7280; white-space: pre-line; }
+  .modal-box input { width: 100%; padding: 8px 10px; font: inherit;
+                     font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px;
+                     box-sizing: border-box; border: 1px solid #d1d5db; border-radius: 4px; }
+  .modal-preview { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+                   padding: 10px 0 4px; min-height: 18px; }
+  .modal-btns { display: flex; gap: 12px; justify-content: flex-end; margin-top: 16px; }
+  .modal-btns button { padding: 8px 18px; font: inherit; cursor: pointer; border-radius: 4px;
+                       background: #2563eb; color: #fff; border: 0; }
+  .modal-btns button:disabled { background: #9ca3af; cursor: default; }
+  .modal-btns button.alt { background: #6b7280; }
+  .picker-list { display: grid; grid-template-columns: auto 1fr auto auto; gap: 6px 16px;
+                 align-items: center; margin: 12px 0; font-size: 15px; }
+  .picker-list .picker-name { padding: 5px 10px; border-radius: 4px; font-size: 15px; }
+  .picker-list .picker-name:hover { background: #dbeafe; }
+  .picker-list .picker-abs { color: #6b7280; font-size: 12px;
+                             font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .picker-list .picker-time { color: #9ca3af; font-size: 13px;
+                              font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                              text-align: right; padding: 0 6px; }
+  .picker-list .root-rm { padding: 5px 10px; border-radius: 4px; font-size: 15px; }
+  .picker-list .root-rm:hover { background: #fee2e2; color: #991b1b; }
+  .pick-screen button { padding: 10px 20px; font: inherit; font-size: 15px;
+                        background: #2563eb; color: #fff; border: 0; border-radius: 6px;
+                        cursor: pointer; margin: 4px; }
+  .pick-screen button:hover { background: #1d4ed8; }
+  .pick-screen button.alt { background: #6b7280; }
+  .pick-screen button.alt:hover { background: #4b5563; }
+
+  #overlay { position: fixed; inset: 0; background: #fff; z-index: 20;
+             display: flex; flex-direction: column; }
+  #overlay[hidden] { display: none; }
+  #overlay-bar { padding: 8px 12px; background: #1f2937; color: #fff;
+                 display: flex; align-items: center; gap: 12px;
+                 font: 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace; flex: none; }
+  #overlay-back { padding: 4px 12px; background: #374151; color: #fff;
+                  border: 1px solid #4b5563; border-radius: 3px; cursor: pointer;
+                  font: inherit; font-size: 13px; flex: none; }
+  #overlay-back:hover { background: #4b5563; }
+  #overlay-path { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+  #overlay-iframe { flex: 1; width: 100%; border: 0; background: #fff; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="row1">
+    <h1>🦝 koumes</h1>
+    <a class="root-bar" id="root-bar" title="change root" hidden></a>
+  </div>
+  <span class="crumb" id="crumb"></span>
+</header>
+
+<div id="control-bar" hidden></div>
+<div id="sub-panel" hidden></div>
+
+<main id="main">
+  <div class="pick-screen" id="picker">
+    <div>
+      <p>Pick root directory for koumes.</p>
+      <button id="pick-root">Pick directory</button>
+    </div>
+  </div>
+</main>
+
+<div id="overlay" hidden>
+  <div id="overlay-bar">
+    <button id="overlay-back">← zpět</button>
+    <span id="overlay-path"></span>
+  </div>
+  <iframe id="overlay-iframe"></iframe>
+</div>
+
+
+<script>
+// ====== chroma bridge shim ======
+// Chroma sama injectuje QWebChannel a vystaví `window.__chroma.ready`.
+// Poll krátce (chroma inject běží při DocumentReady, může přijít po nás).
+// Když nejsme v chromě, resolvne null → picker/browser mode.
+window.__chromaReady = new Promise(function (resolve) {
+  var tries = 0;
+  (function check() {
+    if (window.__chroma && window.__chroma.ready) {
+      window.__chroma.ready.then(resolve);
+      return;
+    }
+    if (++tries > 50) { resolve(null); return; }
+    setTimeout(check, 100);
+  })();
+});
+
+function ChromaHandle(fs, absPath, name, isDir) {
+  this._fs = fs; this._path = absPath; this.name = name;
+  this.kind = isDir ? 'directory' : 'file';
+}
+ChromaHandle.prototype.queryPermission   = function () { return Promise.resolve('granted'); };
+ChromaHandle.prototype.requestPermission = function () { return Promise.resolve('granted'); };
+ChromaHandle.prototype.getDirectoryHandle = function (name) {
+  var self = this;
+  return new Promise(function (res, rej) {
+    var p = self._path.replace(/\/$/, '') + '/' + name;
+    self._fs.isDir(p, function (isDir) {
+      if (!isDir) { rej(new Error('not a directory: ' + p)); return; }
+      res(new ChromaHandle(self._fs, p, name, true));
+    });
+  });
+};
+ChromaHandle.prototype.getFileHandle = function (name) {
+  var self = this;
+  return new Promise(function (res) {
+    var p = self._path.replace(/\/$/, '') + '/' + name;
+    res(new ChromaHandle(self._fs, p, name, false));
+  });
+};
+ChromaHandle.prototype.values = function () {
+  var self = this;
+  return {
+    __items: null, __idx: 0,
+    next: function () {
+      var iter = this;
+      if (iter.__items === null) {
+        return new Promise(function (res) {
+          self._fs.list(self._path, function (items) {
+            iter.__items = items || [];
+            iter.next().then(res);
+          });
+        });
+      }
+      if (iter.__idx >= iter.__items.length) return Promise.resolve({ done: true });
+      var name = iter.__items[iter.__idx++];
+      var p = self._path.replace(/\/$/, '') + '/' + name;
+      return new Promise(function (res) {
+        self._fs.isDir(p, function (isDir) {
+          res({ done: false, value: new ChromaHandle(self._fs, p, name, isDir) });
+        });
+      });
+    }
+  };
+};
+ChromaHandle.prototype.getFile = function () {
+  var self = this;
+  return new Promise(function (res) {
+    self._fs.read(self._path, function (text) {
+      res({
+        text: function () { return Promise.resolve(text || ''); },
+        name: self.name, size: (text || '').length
+      });
+    });
+  });
+};
+ChromaHandle.prototype.createWritable = function () {
+  var self = this;
+  var chunks = [];
+  return Promise.resolve({
+    write: function (data) { chunks.push(typeof data === 'string' ? data : String(data)); return Promise.resolve(); },
+    close: function () {
+      return new Promise(function (res) {
+        self._fs.write(self._path, chunks.join(''), function () { res(); });
+      });
+    }
+  });
+};
+
+(function () {
+  // ====== IndexedDB store pro root handle ======
+  var DB_NAME = 'iris', STORE = 'handles';
+  function openDB() {
+    return new Promise(function (res, rej) {
+      var req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = function () { req.result.createObjectStore(STORE); };
+      req.onsuccess = function () { res(req.result); };
+      req.onerror   = function () { rej(req.error); };
+    });
+  }
+  function dbGet(key) {
+    return openDB().then(function (db) {
+      return new Promise(function (res, rej) {
+        var r = db.transaction(STORE, 'readonly').objectStore(STORE).get(key);
+        r.onsuccess = function () { res(r.result); };
+        r.onerror   = function () { rej(r.error); };
+      });
+    });
+  }
+  function dbSet(key, val) {
+    return openDB().then(function (db) {
+      return new Promise(function (res, rej) {
+        var tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).put(val, key);
+        tx.oncomplete = function () { res(); };
+        tx.onerror    = function () { rej(tx.error); };
+      });
+    });
+  }
+
+  // ====== konfigurace ======
+  var SERVER_DISK_ROOT = '~';            // http server běží s -d ~/
+  var SERVER_URL       = 'http://127.0.0.1:8778'; // hardcoded, ať to funguje i když dirs běží přes file://
+
+  // hotdir = oblíbený adresář — zatím natvrdo, časem konfigurovatelně.
+  // Zobrazí se jen poslední segment cesty (např. „skuhrov" místo CODE_ROOT/orders/skuhrov).
+  // Hotdir mimo root je disabled (FSA nepustí).
+  var HOTDIRS = [
+    'CODE_ROOT/orders/skuhrov',
+    'CODE_ROOT/orders/skuhrov/develop',
+    'CODE_ROOT/koumes_py',
+    'CODE_ROOT/CLAUDE',
+    'CODE_ROOT/TIMEAXIS/2026_q2/05_16_article_nulldev_app'
+  ];
+
+  // ====== roots list (IndexedDB) ======
+  function dbGetRoots() {
+    return dbGet('roots').then(function (r) { return Array.isArray(r) ? r : []; });
+  }
+  function dbAddRoot(handle, absPath) {
+    return dbGetRoots().then(function (roots) {
+      roots = roots.filter(function (r) { return r.absPath !== absPath; });
+      roots.push({ handle: handle, absPath: absPath, at: Date.now() });
+      return dbSet('roots', roots);
+    });
+  }
+
+  function fmtTime(ms) {
+    if (!ms) return '';
+    var diff = Date.now() - ms;
+    var min = Math.floor(diff / 60000);
+    if (min < 1) return 'now';
+    if (min < 60) return min + ' min';
+    var h = Math.floor(min / 60);
+    if (h < 24) {
+      var rm = min % 60;
+      return h + ' h' + (rm ? ' ' + rm + ' min' : '');
+    }
+    var d = Math.floor(h / 24);
+    var rh = h % 24;
+    return d + ' d' + (rh ? ' ' + rh + ' h' : '');
+  }
+  function dbRemoveRoot(absPath) {
+    return dbGetRoots().then(function (roots) {
+      return dbSet('roots', roots.filter(function (r) { return r.absPath !== absPath; }));
+    });
+  }
+  function dbClearAll() {
+    return openDB().then(function (db) {
+      return new Promise(function (res, rej) {
+        var tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).clear();
+        tx.oncomplete = function () { res(); };
+        tx.onerror    = function () { rej(tx.error); };
+      });
+    });
+  }
+
+  // ====== URL ?root= ======
+  function getRootFromURL() {
+    return new URLSearchParams(location.search).get('root');
+  }
+  function setRootInURL(absPath) {
+    var u = new URL(location.href);
+    if (absPath) u.searchParams.set('root', absPath);
+    else        u.searchParams.delete('root');
+    history.replaceState({}, '', u.toString());
+  }
+
+  // ====== stav ======
+  var rootHandle   = null;
+  var rootAbsPath  = null;    // absolutní cesta k rootu na disku (např. ~/foo)
+  var path         = [];      // jména od rootu po aktivní (prázdné = aktivní je root)
+  var selectedPath = null;    // string „a/b/file.txt" relativně k rootu, pro highlight
+  var parentPage   = 0;       // stránka v levém sloupci
+  var activePage   = 0;       // stránka v pravém sloupci
+  var filterText   = '';      // text-filtr v pravém sloupci
+  var filterDir    = true;    // ukazovat adresáře?
+  var filterFile   = true;    // ukazovat soubory?
+  var wantFocusCaret = null;  // obnovit focus na filter input s touto pozicí (null = ne)
+  var subPanelMode   = null;  // 'hotdirs' | 'roots' | null
+
+  // ====== DOM refs ======
+  var $main       = document.getElementById('main');
+  var $picker     = document.getElementById('picker');
+  var $rootBar    = document.getElementById('root-bar');
+  var $crumb      = document.getElementById('crumb');
+  var $controlBar = document.getElementById('control-bar');
+  var $subPanel   = document.getElementById('sub-panel');
+  var $overlay       = document.getElementById('overlay');
+  var $overlayBack   = document.getElementById('overlay-back');
+  var $overlayPath   = document.getElementById('overlay-path');
+  var $overlayIframe = document.getElementById('overlay-iframe');
+
+  function showOverlay(url, label) {
+    url += (url.indexOf('?') >= 0 ? '&' : '?') + 'irisTab=iris-preview';
+    $overlayPath.textContent = label;
+    $overlayIframe.src = url;
+    $overlay.hidden = false;
+  }
+  // přímo kliklý soubor — samostatný tab (ne overlay)
+  function openInTab(url) {
+    url += (url.indexOf('?') >= 0 ? '&' : '?') + 'irisTab=iris-preview';
+    var w = window.open(url, 'iris-preview');
+    if (w) w.focus();
+  }
+
+  // md-viewer.html posílá { type: 'reloadMd', file: '/abs/path' } — přečteme přes FSA
+  // a odpovíme { type: 'mdContent', content }.
+  window.addEventListener('message', function (e) {
+    var m = e.data;
+    if (!m || m.type !== 'reloadMd' || !m.file) return;
+    if (!rootHandle || !rootAbsPath) return;
+    if (m.file.indexOf(rootAbsPath + '/') !== 0) return;
+    var rel = m.file.slice(rootAbsPath.length + 1);
+    (async function () {
+      try {
+        var parts = rel.split('/');
+        var h = rootHandle;
+        for (var i = 0; i < parts.length - 1; i++) {
+          h = await h.getDirectoryHandle(parts[i]);
+        }
+        var fh = await h.getFileHandle(parts[parts.length - 1]);
+        var f = await fh.getFile();
+        var content = await f.text();
+        e.source.postMessage({ type: 'mdContent', content: content }, '*');
+      } catch (err) {
+        e.source.postMessage({ type: 'mdError', error: err.message || String(err) }, '*');
+      }
+    })();
+  });
+  function hideOverlay() {
+    $overlay.hidden = true;
+    $overlayIframe.src = 'about:blank';
+  }
+  $overlayBack.addEventListener('click', hideOverlay);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !$overlay.hidden) hideOverlay();
+  });
+
+  // ====== helpers ======
+  // Zapíše aktuální stav (dir + file) do <root>/cvz/iris-state.json — ať si Karel
+  // přečte cestu k dir/file přímo z disku (Browser MCP je single-tab + cross-origin).
+  function writeState() {
+    if (!rootHandle || !rootAbsPath) return;
+    var state = {
+      dir:  rootAbsPath + (path.length ? '/' + path.join('/') : ''),
+      file: selectedPath ? rootAbsPath + '/' + selectedPath : null,
+      ts:   new Date().toISOString()
+    };
+    console.log('writeState attempt:', state);
+    rootHandle.getDirectoryHandle('cvz', { create: false })
+      .then(function (cvz) { return cvz.getFileHandle('iris-state.json', { create: true }); })
+      .then(function (fh)  { return fh.createWritable(); })
+      .then(function (w)   { return w.write(JSON.stringify(state, null, 2)).then(function () { return w.close(); }); })
+      .then(function ()    { console.log('writeState OK'); })
+      .catch(function (e)  { console.warn('writeState FAIL:', e.name, e.message); });
+  }
+
+  function resolveAt(handle, names) {
+    return names.reduce(function (p, n) {
+      return p.then(function (h) { return h.getDirectoryHandle(n); });
+    }, Promise.resolve(handle));
+  }
+
+  function listEntries(handle, onlyDirs) {
+    var iter = handle.values();
+    var out = [];
+    function step() {
+      return iter.next().then(function (r) {
+        if (r.done) return out;
+        if (!onlyDirs || r.value.kind === 'directory') out.push(r.value);
+        return step();
+      });
+    }
+    return step().then(function (es) {
+      es.sort(function (a, b) {
+        if (a.kind !== b.kind) return a.kind === 'directory' ? -1 : 1;
+        // Bucket: 0=ALL CAPS, 1=Capital start, 2=lowercase, 3=dotfile.
+        function bucket(n) {
+          if (!n) return 2;
+          if (n[0] === '.') return 3;
+          if (n === n.toUpperCase() && /[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ]/.test(n)) return 0;
+          if (/^[A-ZÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ]/.test(n)) return 1;
+          return 2;
+        }
+        const ba = bucket(a.name), bb = bucket(b.name);
+        if (ba !== bb) return ba - bb;
+        return a.name.localeCompare(b.name, 'cs');
+      });
+      return es;
+    });
+  }
+
+  function makeEntry(e) {
+    var d = document.createElement('div');
+    d.className = 'entry ' + e.kind;
+    d.dataset.kind = e.kind;
+    d.dataset.name = e.name;
+    var ico = document.createElement('span'); ico.className = 'ico';
+    ico.textContent = e.kind === 'directory' ? '📁'
+                   : /\.html?$/i.test(e.name) ? '🟩'
+                   : /\.t2l$/i.test(e.name)   ? '🔵'
+                   : '📄';
+    var nm  = document.createElement('span'); nm.textContent = e.name;
+    d.appendChild(ico); d.appendChild(nm);
+    return d;
+  }
+
+  function renderCrumb() {
+    $crumb.innerHTML = '';
+    // vždycky 2 bold (parent + active); když parent neexistuje (path=[]), placeholder „ROOT"
+    var activeIdx = path.length - 1;
+    var parentIdx = path.length - 2;
+    function link(label, idx) {
+      var s = document.createElement('span');
+      s.textContent = label;
+      if (idx === activeIdx || idx === parentIdx) s.className = 'cur';
+      return s;
+    }
+    if (path.length === 0) {
+      $crumb.appendChild(el('span', 'cur', 'NULL'));
+      $crumb.appendChild(el('span', 'sep', '/'));
+    }
+    $crumb.appendChild(link(rootAbsPath || (rootHandle ? rootHandle.name : '?'), -1));
+    for (var i = 0; i < path.length; i++) {
+      $crumb.appendChild(el('span', 'sep', '/'));
+      $crumb.appendChild(link(path[i], i));
+    }
+
+
+  }
+
+  function el(tag, cls, text, id) {
+    var x = document.createElement(tag);
+    if (cls)        x.className = cls;
+    if (text != null) x.textContent = text;
+    if (id)         x.id = id;
+    return x;
+  }
+
+  // ====== sub-panel (hotdirs / roots) ======
+  function renderSubPanel() {
+    $subPanel.innerHTML = '';
+    if (!subPanelMode) { $subPanel.hidden = true; return; }
+    var $list = el('div', 'hotdirs');
+
+    function addClose() {
+      var $c = el('a', 'hotdir close', '✕ close');
+      $c.addEventListener('click', function () { subPanelMode = null; $subPanel.hidden = true; });
+      $list.appendChild($c);
+    }
+
+    if (subPanelMode === 'hotdirs') {
+      HOTDIRS.forEach(function (hd) {
+        var label = hd.split('/').filter(Boolean).pop();
+        var $a = el('a', 'hotdir', '📁 ' + label);
+        $a.title = hd;
+        var inRoot = (hd === rootAbsPath) || (hd.indexOf(rootAbsPath + '/') === 0);
+        if (!inRoot) {
+          $a.classList.add('disabled');
+          $a.title = hd + ' (outside root — N/A)';
+        } else {
+          $a.addEventListener('click', function () {
+            var rel = hd === rootAbsPath ? '' : hd.slice(rootAbsPath.length + 1);
+            path = rel ? rel.split('/') : [];
+            parentPage = 0; activePage = 0;
+            filterText = '';
+            subPanelMode = null;
+            $subPanel.hidden = true;
+            render();
+            writeState();
+          });
+        }
+        $list.appendChild($a);
+      });
+      addClose();
+    } else if (subPanelMode === 'roots') {
+      dbGetRoots().then(function (roots) {
+        if (!roots.length) {
+          $list.appendChild(el('span', null, '(no saved roots)'));
+        } else {
+          // newest first
+          roots.slice().reverse().forEach(function (entry) {
+            var $a = el('a', 'hotdir', '🌳 ' + entry.absPath);
+            $a.title = entry.absPath === rootAbsPath ? entry.absPath + ' (active)' : 'activate ' + entry.absPath;
+            if (entry.absPath === rootAbsPath) $a.classList.add('disabled');
+            else $a.addEventListener('click', function () { activateRoot(entry); });
+            var $t = el('span', 'root-time', fmtTime(entry.at));
+            var $rm = el('a', 'hotdir root-rm', '✕');
+            $rm.title = 'remove from list';
+            $rm.addEventListener('click', function () {
+              if (!confirm('Remove „' + entry.absPath + '" from list?')) return;
+              dbRemoveRoot(entry.absPath).then(renderSubPanel);
+            });
+            $list.appendChild($a);
+            $list.appendChild($t);
+            $list.appendChild($rm);
+          });
+        }
+        // přidat nový root — system dir picker dialog
+        var $add = el('a', 'hotdir', '➕ pick new directory');
+        $add.addEventListener('click', function () {
+          subPanelMode = null; $subPanel.hidden = true;
+          pickRoot();
+        });
+        $list.appendChild($add);
+        // clean button — vymaže celý IDB iris storage a reloadne tab
+        var $clean = el('a', 'hotdir clean', '🗑 clean (wipe all + reload)');
+        $clean.addEventListener('click', function () {
+          if (!confirm('Wipe all koumes storage in IDB (roots, root, rootAbsPath) and reload?')) return;
+          dbClearAll().then(function () { location.reload(); });
+        });
+        $list.appendChild($clean);
+        addClose();
+      }).catch(function (e) { console.error('renderSubPanel roots ERR:', e); });
+    }
+
+    $subPanel.appendChild($list);
+    $subPanel.hidden = false;
+  }
+
+  function renderEmptyCol($col, note) {
+    $col.innerHTML = '';
+    var box = el('div', 'col-entries');
+    box.appendChild(el('div', 'empty-note', note));
+    $col.appendChild(box);
+  }
+
+  function renderPagedCol($col, entries, role, decorate, onClick) {
+    // Scrolling column — all entries rendered, .col-entries has overflow-y:auto.
+    // Kept the function name for callers; page state ignored.
+    $col.innerHTML = '';
+    var $box = el('div', 'col-entries');
+    $col.appendChild($box);
+    if (!entries.length) {
+      $box.appendChild(el('div', 'empty-note', '(empty)'));
+      return;
+    }
+    entries.forEach(function (e) {
+      var d = makeEntry(e);
+      if (decorate) decorate(e, d);
+      d.addEventListener('click', function () { onClick(e); });
+      $box.appendChild(d);
+    });
+  }
+
+  function render() {
+    renderCrumb();
+
+    $main.innerHTML = '';
+    var $colP = el('div', 'col', null, 'col-parent');
+    var $colA = el('div', 'col', null, 'col-active');
+    // Single-panel mode: parent col skipped, only active (right) col visible.
+    $main.appendChild($colA);
+
+    var parentPath = path.length ? path.slice(0, -1) : null;
+    var activePath = path.slice();
+
+    var pParent = Promise.resolve(null); // parent col disabled — no fetch
+    var pActive = resolveAt(rootHandle, activePath);
+
+    // ===== Control-bar (filter) — společný pruh nad oběma sloupci =====
+    // Note: "up" button removed — ai.t2ls Qt toolbar provides ⬅ dir-up.
+    $controlBar.innerHTML = '';
+
+    // refresh button removed — ai.t2ls Qt toolbar provides 🔄 reload.
+
+    // hotdirs button removed — replaced by bookmarks in parent (L) panel.
+
+    // copy-path button removed — ai.t2ls infoBar provides 📋 copy per label.
+
+    // 🗑 delete-selected — trashes selectedPath (or active dir if none),
+    // disabled when there's nothing meaningful to delete.
+    var $delBtn = document.createElement('button');
+    $delBtn.className = 'back-btn';
+    $delBtn.style.fontSize = '14px';
+    $delBtn.textContent = '🗑';
+    function refreshDelBtn() {
+      var target = selectedPath
+        ? rootAbsPath + '/' + selectedPath
+        : (path.length ? rootAbsPath + '/' + path.join('/') : null);
+      $delBtn.disabled = !target;
+      $delBtn.title    = target ? 'Přesunout do koše: ' + target
+                                 : 'Nic vybráno k odstranění';
+    }
+    refreshDelBtn();
+    $delBtn.addEventListener('click', function () {
+      var target = selectedPath
+        ? rootAbsPath + '/' + selectedPath
+        : (path.length ? rootAbsPath + '/' + path.join('/') : null);
+      if (!target) return;
+      var isFile = !!selectedPath;
+      var label  = isFile ? 'soubor „' : 'adresář „';
+      var name   = isFile ? selectedPath.split('/').pop() : path[path.length - 1];
+      if (!confirm('Přesunout ' + label + name + '" do koše?\n\n' + target))
+        return;
+      window.__chromaReady.then(function (fs) {
+        if (!fs || !fs.trash) { alert('fs.trash není k dispozici — rebuild chroma.'); return; }
+        fs.trash(target, function (ok) {
+          if (!ok) { alert('Přesun do koše selhal:\n' + target); return; }
+          if (isFile) selectedPath = null;
+          else if (path.length) path.pop();
+          render();
+        });
+      });
+    });
+    // Delete button — pushed to opposite side (margin-left auto).
+    $delBtn.style.marginLeft = 'auto';
+
+    renderSubPanel();
+
+    var $frame = el('div', 'filter-frame');
+    var $flabel = el('span', 'filter-label', 'Filter:');
+    $frame.appendChild($flabel);
+    var $inp = document.createElement('input');
+    $inp.type = 'text'; $inp.value = filterText;
+    $inp.addEventListener('input', function () {
+      filterText = $inp.value;
+      wantFocusCaret = $inp.selectionStart;
+      activePage = 0;
+      render();
+    });
+    $frame.appendChild($inp);
+    var $bd = el('button', 'tg ' + (filterDir  ? 'on' : 'off'), '📁');
+    var $bf = el('button', 'tg ' + (filterFile ? 'on' : 'off'), '📄');
+    $bd.title = 'directories'; $bf.title = 'files';
+    $bd.addEventListener('click', function () { filterDir  = !filterDir;  activePage = 0; render(); });
+    $bf.addEventListener('click', function () { filterFile = !filterFile; activePage = 0; render(); });
+    $frame.appendChild($bd); $frame.appendChild($bf);
+    $controlBar.appendChild($frame);
+    $controlBar.appendChild($delBtn);   // pushed to right by margin-left: auto
+
+    if (wantFocusCaret !== null) {
+      $inp.focus();
+      try { $inp.setSelectionRange(wantFocusCaret, wantFocusCaret); } catch (_) {}
+      wantFocusCaret = null;
+    }
+
+    // ===== Dva sloupce =====
+    Promise.all([pParent, pActive]).then(function (hs) {
+      var parentH = hs[0], activeH = hs[1];
+      var activeName = activeH.name;
+
+      // parent col — jen adresáře
+      if (!parentH) {
+        renderEmptyCol($colP, '(root — cannot go higher)');
+      } else {
+        listEntries(parentH, true).then(function (es) {
+          renderPagedCol($colP, es, 'parent',
+            function (e, d) { if (e.name === activeName) d.classList.add('active'); },
+            function (e) {
+              path = parentPath.concat([e.name]);
+              parentPage = 0; activePage = 0;
+              filterText = '';
+              render();
+              writeState();
+            });
+        });
+      }
+
+      // active col — filtrované entries
+      listEntries(activeH, false).then(function (es) {
+        var needle = filterText.toLowerCase();
+        var filtered = es.filter(function (e) {
+          if (e.kind === 'directory' && !filterDir)  return false;
+          if (e.kind === 'file'      && !filterFile) return false;
+          if (needle && e.name.toLowerCase().indexOf(needle) === -1) return false;
+          return true;
+        });
+
+        renderPagedCol($colA, filtered, 'active',
+          function (e, d) {
+            var entryPath = activePath.concat([e.name]).join('/');
+            var isSel = (selectedPath === entryPath);
+            if (isSel) d.classList.add('selected');
+            // data-cmd = the cmd this click will fire (state-aware for 2-stage).
+            // 1st click = preselect; 2nd click on already-selected = action.
+            // dirs.html has its own click handler (state mgmt) → suppress auto-fire.
+            var entryAbs = rootAbsPath + '/' + entryPath;
+            d.dataset.cmd = isSel
+              ? (e.kind === 'directory'
+                 ? 'panel_show dir "' + entryAbs + '"'
+                 : 'panel_show p1 "'  + entryAbs + '"')
+              : 'preselect dir "' + entryAbs + '"';
+            d.dataset.cmdNofire = '1';
+          },
+          function (e) {
+            // 2-stage pro OBOJÍ (file i dir):
+            //   1. klik = preselect (highlight, žádná akce)
+            //   2. klik na už-selected → akce:
+            //     dir → navigate; file → open v p1 (bus.notifyFileSelected)
+            var entryPath = activePath.concat([e.name]).join('/');
+            if (selectedPath !== entryPath) {
+              selectedPath = entryPath;
+              // 1st click = preselect (highlight only). Fire cmd so it's logged
+              // + queryable via `dir_preselect`.
+              var cfp = window.__chroma && window.__chroma.fs;
+              if (cfp && cfp.exec)
+                cfp.exec('preselect dir "' + rootAbsPath + '/' + entryPath + '"');
+              render(); writeState();
+              return;
+            }
+            if (e.kind === 'directory') {
+              path = activePath.concat([e.name]);
+              parentPage = 0; activePage = 0;
+              filterText = '';
+              selectedPath = null;
+              // Notify system: mid panel now shows this dir. Goes through
+              // CmdSys (logged) → bus.dirChanged → updateCustom refreshes
+              // stateDir + info bars (no midView reload — same html).
+              var cfd = window.__chroma && window.__chroma.fs;
+              var newDirAbs = rootAbsPath + '/' + path.join('/');
+              if (cfd && cfd.exec) cfd.exec('panel_show dir "' + newDirAbs + '"');
+            } else {
+              var diskPath = rootAbsPath + '/' + entryPath;
+              var cf = window.__chroma && window.__chroma.fs;
+              // DIAGNOSTIC: write marker to /tmp so we can inspect state.
+              var diag = 'ts=' + Date.now()
+                       + ' path=' + diskPath
+                       + ' cf=' + typeof cf
+                       + ' exec=' + (cf && typeof cf.exec)
+                       + ' write=' + (cf && typeof cf.write)
+                       + ' keys=' + (cf ? Object.keys(cf).join(',') : 'null');
+              if (cf && cf.write) cf.write('/tmp/dirsdiag.txt', diag);
+              if (cf && cf.exec) cf.exec('panel_show p1 "' + diskPath + '"');
+              else {
+                var b = window.__chroma && window.__chroma.bus;
+                if (b && b.notifyFileSelected) b.notifyFileSelected(diskPath);
+              }
+            }
+            render();
+            writeState();
+          });
+      });
+    }).catch(function (e) {
+      $colA.appendChild(el('div', 'empty-note', 'Error: ' + (e.message || e)));
+    });
+  }
+
+  // Compute suggested abs path: longest common dir prefix of saved roots + handleName.
+  function suggestedAbsPath(roots, handleName) {
+    var paths = (roots || []).map(function (r) { return r.absPath; }).filter(Boolean);
+    if (!paths.length) return SERVER_DISK_ROOT + '/' + handleName;
+    var prefix = paths[0];
+    for (var i = 1; i < paths.length; i++) {
+      while (prefix && paths[i].indexOf(prefix) !== 0) prefix = prefix.slice(0, -1);
+    }
+    var idx = prefix.lastIndexOf('/');
+    if (idx > 0) prefix = prefix.slice(0, idx);
+    // if prefix's last segment IS handleName, trim it (avoid duplication when joining)
+    if (prefix.split('/').pop() === handleName) {
+      var idx2 = prefix.lastIndexOf('/');
+      if (idx2 > 0) prefix = prefix.slice(0, idx2);
+    }
+    if (!prefix || prefix.charAt(0) !== '/') prefix = SERVER_DISK_ROOT;
+    return prefix + '/' + handleName;
+  }
+
+  // Custom modal — input + live preview + must be absolute, no relative paths.
+  function askAbsPath(handleName, cb) {
+    var $mask = el('div', 'modal-mask');
+    var $box  = el('div', 'modal-box');
+    $box.appendChild(el('p', null, 'Absolute disk path for „' + handleName + '"'));
+    $box.appendChild(el('p', 'modal-hint',
+      'Browser cannot detect it — you have to type/edit it.\n' +
+      'Must be absolute (start with "/"). Example: CODE_ROOT/orders'));
+    var $input = document.createElement('input');
+    $input.type = 'text'; $input.placeholder = '/...';
+    $box.appendChild($input);
+    var $preview = el('div', 'modal-preview', '');
+    $box.appendChild($preview);
+    var $btns = el('div', 'modal-btns');
+    var $ok = el('button', null, 'OK');
+    var $cancel = el('button', 'alt', 'Cancel');
+    $btns.appendChild($ok); $btns.appendChild($cancel);
+    $box.appendChild($btns);
+    $mask.appendChild($box);
+    document.body.appendChild($mask);
+    // pre-fill with suggested path based on existing roots
+    dbGetRoots().then(function (roots) {
+      var suggest = suggestedAbsPath(roots, handleName);
+      // strip trailing /handleName for editing comfort — user vidí parent, ten doplní
+      var parent = suggest.replace(/\/[^/]+$/, '') || '/';
+      $input.value = parent + '/' + handleName;
+      // select only the parent part so user can quickly retype if it's wrong
+      $input.setSelectionRange(0, parent.length);
+      $input.focus();
+      update();
+    });
+
+    function check(v) {
+      v = (v || '').trim().replace(/\/+$/, '');
+      if (!v)                  return { ok: false, msg: '(empty — type a path)',         path: '' };
+      if (v.charAt(0) !== '/') return { ok: false, msg: 'not absolute — must start with /', path: v };
+      return                          { ok: true,  path: v };
+    }
+    function update() {
+      var r = check($input.value);
+      $preview.innerHTML = '';
+      if (r.ok) {
+        // bold typed; if it doesn't already end with /handleName, append it weak
+        var endsWith = r.path === '/' + handleName ||
+                       r.path.slice(-(handleName.length + 1)) === '/' + handleName;
+        var $strong = document.createElement('strong');
+        $strong.textContent = r.path;
+        $preview.appendChild($strong);
+        if (!endsWith) {
+          var $weak = document.createElement('span');
+          $weak.style.color = '#9ca3af';
+          $weak.textContent = '/' + handleName;
+          $preview.appendChild($weak);
+        }
+      } else {
+        $preview.textContent = r.msg;
+        $preview.style.color = '#dc2626';
+      }
+      $ok.disabled = !r.ok;
+    }
+    function close(result) { document.body.removeChild($mask); cb(result); }
+    $input.addEventListener('input', update);
+    $input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !$ok.disabled) close(check($input.value).path);
+      if (e.key === 'Escape') close(null);
+    });
+    $ok.addEventListener('click', function () { close(check($input.value).path); });
+    $cancel.addEventListener('click', function () { close(null); });
+    update();
+  }
+
+  // Auto-derive abs path:
+  //  1) from iris's own location — if dir name is in /home/.../dirs.html, root is the prefix.
+  //  2) try each saved root as parent — if pickedHandle is its direct child (isSameEntry), use it.
+  // Returns via callback (path or null).
+  function deriveAbsPath(pickedHandle, cb) {
+    var parts = decodeURI(location.pathname).split('/').filter(Boolean);
+    for (var i = parts.length - 1; i >= 0; i--) {
+      if (parts[i] === pickedHandle.name) {
+        cb('/' + parts.slice(0, i + 1).join('/'));
+        return;
+      }
+    }
+    dbGetRoots().then(function (roots) {
+      function tryNext(idx) {
+        if (idx >= roots.length) { cb(null); return; }
+        var r = roots[idx];
+        if (!r.handle) { tryNext(idx + 1); return; }
+        r.handle.getDirectoryHandle(pickedHandle.name).then(function (child) {
+          return child.isSameEntry(pickedHandle);
+        }).then(function (same) {
+          if (same) cb(r.absPath + '/' + pickedHandle.name);
+          else      tryNext(idx + 1);
+        }).catch(function () { tryNext(idx + 1); });
+      }
+      tryNext(0);
+    });
+  }
+
+  function commitRoot(h, ap) {
+    rootHandle   = h;
+    rootAbsPath  = ap;
+    path         = [];
+    selectedPath = null;
+    setRootInURL(ap);
+    dbAddRoot(h, ap).then(showApp);
+  }
+
+  // ====== root pick ======
+  function pickRoot() {
+    if (!window.showDirectoryPicker) {
+      alert('Browser does not support File System Access API. Try Chrome on localhost/https.');
+      return;
+    }
+    window.showDirectoryPicker({ mode: 'readwrite' }).then(function (h) {
+      deriveAbsPath(h, function (ap) {
+        if (ap) { commitRoot(h, ap); return; }  // automatic — no modal
+        askAbsPath(h.name, function (typed) {
+          if (!typed) return;
+          commitRoot(h, typed);
+        });
+      });
+    }).catch(function (e) {
+      if (e.name !== 'AbortError') console.warn(e);
+    });
+  }
+
+  function activateRoot(entry) {
+    var h = entry.handle;
+    function use() {
+      rootHandle   = h;
+      rootAbsPath  = entry.absPath;
+      path         = [];
+      selectedPath = null;
+      parentPage   = 0; activePage = 0;
+      filterText   = '';
+      subPanelMode = null;
+      $subPanel.hidden = true;
+      setRootInURL(entry.absPath);
+      // pošoupni nahoru v listu (LRU) + zobraz dirs view
+      dbAddRoot(h, entry.absPath).then(showApp);
+    }
+    h.queryPermission({ mode: 'readwrite' }).then(function (perm) {
+      if (perm === 'granted') return use();
+      return h.requestPermission({ mode: 'readwrite' }).then(function (p) {
+        if (p === 'granted') use();
+        else alert('Access denied.');
+      });
+    });
+  }
+
+  function showApp() {
+    $picker.remove();
+    $rootBar.hidden = false;
+    $rootBar.dataset.path = rootAbsPath;
+    $controlBar.hidden = false;
+    render();
+    writeState();
+  }
+
+  $rootBar.addEventListener('click', function () {
+    // reload s ?picker=1 → restore přeskočí, zůstane úvodní picker (bez auto-aktivace)
+    location.href = location.pathname + '?picker=1';
+  });
+
+  // úvodní picker — seznam uložených rootů + „přidat nový" + „vymazat vše"
+  function renderPicker() {
+    dbGetRoots().then(function (roots) {
+      $picker.innerHTML = '';
+      var $wrap = el('div', null);
+      $wrap.style.padding = '20px';
+      $wrap.style.maxWidth = '700px';
+      $wrap.style.textAlign = 'left';
+
+      $wrap.appendChild(el('p', null, 'Pick root directory for koumes:'));
+
+      if (roots.length) {
+        var $list = el('div', 'picker-list');
+        roots.slice().reverse().forEach(function (entry) {
+          var name = (entry.handle && entry.handle.name) ? entry.handle.name : '?';
+          var $a = el('a', 'hotdir picker-name', '🌳 ' + name);
+          $a.title = 'activate ' + entry.absPath;
+          $a.addEventListener('click', function () { activateRoot(entry); });
+          var $abs = el('span', 'picker-abs', entry.absPath);
+          var $t = el('span', 'root-time picker-time', fmtTime(entry.at));
+          var $rm = el('a', 'hotdir root-rm', '✕');
+          $rm.title = 'remove from list';
+          $rm.addEventListener('click', function () {
+            if (!confirm('Remove „' + entry.absPath + '" from list?')) return;
+            dbRemoveRoot(entry.absPath).then(renderPicker);
+          });
+          $list.appendChild($a);
+          $list.appendChild($abs);
+          $list.appendChild($t);
+          $list.appendChild($rm);
+        });
+        $wrap.appendChild($list);
+      }
+
+      var $newBtn = el('button', null, '➕ Pick new directory');
+      $newBtn.style.marginTop = '20px';
+      $newBtn.addEventListener('click', pickRoot);
+      $wrap.appendChild($newBtn);
+
+      $picker.appendChild($wrap);
+    });
+  }
+
+  // populate picker hned na start (aby ho bylo vidět když restore přeskakuje)
+  renderPicker();
+
+  // ====== restore na load ======
+  // migrace: starý single 'root' + 'rootAbsPath' → záznam v 'roots' listu
+  function migrateOldSingle() {
+    return dbGet('root').then(function (h) {
+      if (!h) return;
+      return dbGet('rootAbsPath').then(function (ap) {
+        if (!ap) return;
+        return dbAddRoot(h, ap);
+      });
+    });
+  }
+  // ====== chroma mode: skip picker, auto-use fs.allowedRoot() + role wiring ======
+  window.__chromaReady.then(function (fs) {
+    if (fs) {
+      var role = (window.__chroma && window.__chroma.role) || 'mid';
+      var bus  = window.__chroma && window.__chroma.bus;
+
+      // Listen for sandbox extension — chroma widens allowedRoot at runtime
+      // (dir-up past sandbox edge). We must re-read the new root and re-init
+      // our cached rootAbsPath / rootHandle so navigation still resolves.
+      if (bus && bus.sandboxChanged && bus.sandboxChanged.connect) {
+        bus.sandboxChanged.connect(function (newRoot) {
+          if (!newRoot || newRoot === rootAbsPath) return;
+          var name = newRoot.split('/').filter(Boolean).pop() || newRoot;
+          rootHandle  = new ChromaHandle(fs, newRoot, name, true);
+          rootAbsPath = newRoot;
+          setRootInURL(newRoot);
+          // Reset navigation state — new root, no assumed path.
+          path = [];
+          parentPage = 0; activePage = 0;
+          selectedPath = null;
+          render();
+        });
+      }
+
+      fs.allowedRoot(function (ap) {
+        var name = ap.split('/').filter(Boolean).pop() || ap;
+        var h = new ChromaHandle(fs, ap, name, true);
+        rootHandle  = h;
+        rootAbsPath = ap;
+        setRootInURL(ap);
+
+        // Initial path from ?start= query (chroma passes this; app-provided
+        // starting dir which must lie within the sandbox root).
+        var startArg = new URLSearchParams(location.search).get('start');
+        if (startArg && startArg.indexOf(ap) === 0 && startArg !== ap) {
+          var rel = startArg.slice(ap.length).replace(/^\/+/, '');
+          path = rel ? rel.split('/') : [];
+        }
+
+        showApp();
+
+        // Chroma mode: hide the whole header (👁 Iris title + root-bar + crumb)
+        // AND the overlay bar (path + zpět) — chroma's shared info bar and
+        // navigation cover both.
+        var $hdr = document.querySelector('header');
+        if ($hdr) $hdr.style.display = 'none';
+        if ($rootBar) $rootBar.style.display = 'none';
+        var $ovBar = document.getElementById('overlay-bar');
+        if ($ovBar) $ovBar.style.display = 'none';
+
+        // ---- role-specific wiring ----
+        function absToRelPath(abs) {
+          if (!abs || !abs.indexOf(rootAbsPath) === 0) return [];
+          var rel = abs.slice(rootAbsPath.length).replace(/^\/+/, '');
+          return rel ? rel.split('/') : [];
+        }
+        function currentAbsDir() {
+          return rootAbsPath + (path.length ? '/' + path.join('/') : '');
+        }
+
+        if (role === 'mid') {
+          // Publish dir/file changes after each render() call — but only
+          // when they actually change. Filter typing re-renders on every
+          // keystroke; publishing then cascades to parent (which clears its
+          // filterText on dirChanged), which was tanking the UX.
+          var origRender = render;
+          var lastPubDir  = null;
+          var lastPubFile = null;
+          window.render = render = function () {
+            origRender();
+            if (!bus) return;
+            var abs = currentAbsDir();
+            if (abs !== lastPubDir) {
+              lastPubDir = abs;
+              bus.notifyDirChange(abs);
+              // Also publish as user's active selection — mid navigation is
+              // an explicit user act, Karel should see it as selected dir.
+              if (fs && fs.setSelectedDir) fs.setSelectedDir(abs);
+            }
+            var fileAbs = selectedPath ? (rootAbsPath + '/' + selectedPath) : null;
+            if (fileAbs !== lastPubFile) {
+              lastPubFile = fileAbs;
+              // Publish user-selected file for external readers (chroma_file).
+              // NOTE: DO NOT bus.notifyFileSelected here — preselect (1st click)
+              // must NOT auto-load file into p1. Open only on explicit 2nd click.
+              if (fs && fs.setSelectedFile) fs.setSelectedFile(fileAbs || '');
+            }
+          };
+          // Subscribe: another panel (parent/detail) asks to navigate → mid
+          // updates its path if different.
+          if (bus && bus.dirChanged && bus.dirChanged.connect) {
+            bus.dirChanged.connect(function (newAbs) {
+              if (newAbs === currentAbsDir()) return;   // loop-guard
+              path = absToRelPath(newAbs);
+              parentPage = 0; activePage = 0;
+              filterText = '';
+              selectedPath = null;
+              render();
+            });
+          }
+          render(); // trigger initial publish
+        } else if (role === 'parent') {
+          // Parent shows dirs only (no files) and has no active menu — keep
+          // the control-bar's SPACE (so mid + parent visually align) but hide
+          // its contents (buttons are irrelevant for the parent view).
+          filterDir = true; filterFile = false;
+          if ($controlBar) $controlBar.style.visibility = 'hidden';
+
+          // Subscribe: mid publishes dir → parent shows the parent-of-that.
+          if (bus && bus.dirChanged && bus.dirChanged.connect) {
+            bus.dirChanged.connect(function (newAbs) {
+              var rel = absToRelPath(newAbs);
+              if (rel.length) rel.pop();  // drop last segment → parent
+              path = rel;
+              parentPage = 0; activePage = 0;
+              filterText = '';
+              render();
+            });
+          }
+
+          // Intercept dir clicks in parent: don't navigate self — push change
+          // to mid via bus. Middle then re-publishes dirChanged; parent
+          // subscription updates own path (to grandparent of previously
+          // clicked dir).
+          document.addEventListener('click', function (ev) {
+            var t = ev.target;
+            while (t && !t.classList.contains('entry')) t = t.parentElement;
+            if (!t) return;
+            if (t.dataset.kind !== 'directory') return;
+            ev.stopPropagation(); ev.preventDefault();
+            var relInsideCol = t.dataset.name;
+            if (!relInsideCol) return;
+            var newAbs = currentAbsDir() + '/' + relInsideCol;
+            if (bus) bus.notifyDirChange(newAbs);
+          }, true);
+        } else if (role === 'detail') {
+          // Hide dir list; on fileSelected show the file via iframe overlay.
+          $main.style.display = 'none';
+          if ($controlBar) $controlBar.style.display = 'none';
+          // Main.cpp may load us with ?file=<path> — show that on init.
+          var fileArg = new URLSearchParams(location.search).get('file');
+          if (fileArg) showOverlay('file://' + fileArg, fileArg);
+          if (bus && bus.fileSelected && bus.fileSelected.connect) {
+            bus.fileSelected.connect(function (fileAbs) {
+              if (!fileAbs) return;
+              showOverlay('file://' + fileAbs, fileAbs);
+            });
+          }
+        }
+      });
+      return;
+    }
+
+    // ====== browser mode: standard picker + IndexedDB restore ======
+    dbGetRoots().then(function (roots) {
+      if (!roots.length) return migrateOldSingle().then(dbGetRoots);
+      return roots;
+    }).then(function (roots) {
+      if (!roots || !roots.length) return;
+      if (new URLSearchParams(location.search).get('picker')) return;
+      var urlRoot = getRootFromURL();
+      var entry = null;
+      if (urlRoot) {
+        for (var i = 0; i < roots.length; i++) if (roots[i].absPath === urlRoot) { entry = roots[i]; break; }
+      }
+      if (!entry) entry = roots[roots.length - 1];
+      var h = entry.handle;
+      h.queryPermission({ mode: 'readwrite' }).then(function (perm) {
+        if (perm === 'granted') {
+          rootHandle = h; rootAbsPath = entry.absPath; setRootInURL(entry.absPath); showApp();
+        }
+      });
+    }).catch(function (e) { console.warn('IndexedDB:', e); });
+  });
+})();
+</script>
+
+<script>
+// Bootstrap: load TREE/.t2l/common.js via fs bridge (relative path won't work
+// — dirs.html lives in different dir). Eval in global scope → window.__cmdTools.
+(function () {
+  function boot(fs) {
+    fs.allowedRoot(function (root) {
+      fs.read(root + '/.t2l/common.js', function (txt) {
+        if (txt) { try { (0, eval)(txt); } catch (e) { console.warn('common.js:', e); } }
+      });
+    });
+  }
+  var tries = 0;
+  (function wait() {
+    if (window.__chroma && window.__chroma.ready) {
+      window.__chroma.ready.then(boot);
+      return;
+    }
+    if (++tries > 50) return;
+    setTimeout(wait, 100);
+  })();
+})();
+</script>
+
+</body>
+</html>
