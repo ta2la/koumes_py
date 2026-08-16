@@ -158,7 +158,15 @@ class FsBridge(QObject):
     def _is_allowed(self, path: str) -> bool:
         if not path:
             return True
-        return _is_inside(path, self.allowed_dir_)
+        if _is_inside(path, self.allowed_dir_):
+            return True
+        try:
+            from .app_paths import AppPaths
+            if _is_inside(path, AppPaths.inst().dir_config()):
+                return True
+        except Exception:
+            pass
+        return False
 
     def set_allowed_root(self, new_root: str) -> bool:
         cleaned = _clean_abs(new_root)

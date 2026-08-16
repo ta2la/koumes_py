@@ -63,17 +63,15 @@ def _wire_reload(win: "MainWindow") -> None:
 
 
 def _wire_hide_toggles(win: "MainWindow") -> None:
-    state = {"left_hidden": False, "p2_hidden": False}
-
     def toggle_left() -> None:
-        state["left_hidden"] = not state["left_hidden"]
-        win.p_left.wrap.setVisible(not state["left_hidden"])
-        win.p_mid.hide_parent.setText("◧" if state["left_hidden"] else "□")
+        new_visible = not win.p_left.wrap.isVisible()
+        win.p_left.wrap.setVisible(new_visible)
+        win.p_mid.hide_parent.setText("□" if new_visible else "◧")
 
     def toggle_p2() -> None:
-        state["p2_hidden"] = not state["p2_hidden"]
-        win.p_rm.wrap.setVisible(not state["p2_hidden"])
-        win.p_right.hide_rightmost.setText("◨" if state["p2_hidden"] else "□")
+        new_visible = not win.p_rm.wrap.isVisible()
+        win.p_rm.wrap.setVisible(new_visible)
+        win.p_right.hide_rightmost.setText("□" if new_visible else "◨")
 
     CmdsChroma.set_toggle_fn("left", toggle_left)
     CmdsChroma.set_toggle_fn("p2", toggle_p2)

@@ -202,6 +202,9 @@ def wrap_panel(content: QWidget, www_view: Optional[QWebEngineView] = None) -> P
     tb_layout.addWidget(p.custom)
     tb_layout.addWidget(p.dflt)
     tb_layout.addWidget(p.log)
+    p.custom.setVisible(False)
+    p.dflt.setVisible(False)
+    p.log.setVisible(False)
 
     layout.addWidget(toolbar)
 

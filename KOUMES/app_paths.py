@@ -32,7 +32,7 @@ class AppPaths:
 
     def __init__(self):
         self._dir_exe = str(Path(__file__).resolve().parent)
-        self._dir_config = self._resolve_config_dir()
+        self._dir_config = str(Path(self._dir_exe).parent / "config")
 
     @classmethod
     def inst(cls) -> "AppPaths":
@@ -46,19 +46,3 @@ class AppPaths:
     def dir_config(self) -> str:
         os.makedirs(self._dir_config, exist_ok=True)
         return self._dir_config
-
-    @staticmethod
-    def _resolve_config_dir() -> str:
-        try:
-            from PyQt6.QtCore import QStandardPaths
-            base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppConfigLocation)
-            if base:
-                p = Path(base)
-                return str(p if p.name == "koumes" else p / "koumes")
-        except ImportError:
-            pass
-
-        xdg = os.environ.get("XDG_CONFIG_HOME")
-        if xdg:
-            return str(Path(xdg) / "koumes")
-        return str(Path.home() / ".config" / "koumes")
