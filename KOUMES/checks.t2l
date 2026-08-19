@@ -1,0 +1,2025 @@
+# KOUMES - C++ as canonical source (APPS/AI_T2LS/); find Python equivalent per item
+# scope: C++ item (Class::member, Namespace::fn, CMD:name, MACRO)
+# cpp: relative path from cvz root + line
+# py: filename:line in Python port (empty if missing)
+# status: empty=unchecked, ok=verified match, issue=diff (viz note), dead=C++ dead code / not-needed, cpp_specific=Qt/C++ runtime mechanismus v py bezpředmětný
+
+type: viewer
+name: checks
+
+# ==== AppPaths (base2/app_common/AppPaths.h) ====
+
+type: check
+id: 1
+scope: AppPaths (class)
+kind: class
+cpp: base2/app_common/AppPaths.h:8
+py: app_paths.py:30
+what: per-app path resolver singleton
+status: ok
+
+type: check
+id: 2
+scope: AppPaths::inst
+kind: method
+cpp: base2/app_common/AppPaths.h:11
+py: app_paths.py:38
+what: singleton accessor
+status: ok
+
+type: check
+id: 3
+scope: AppPaths::dirExe
+kind: method
+cpp: base2/app_common/AppPaths.h:13
+py: app_paths.py:43
+what: QCoreApplication::applicationDirPath (Python: package __file__ dir)
+status: ok
+note: 0 externich calleru (jen dirConfig ve vlastnim headeru) - dead-check ambivalentni, chovani sedi
+
+type: check
+id: 4
+scope: AppPaths::dirConfig
+kind: method
+cpp: base2/app_common/AppPaths.h:14
+py: app_paths.py:46
+what: dirExe+/../config
+status: issue
+note: py dir_config() vola os.makedirs(exist_ok=True); C++ dirConfig() je cisty vypocet cesty bez FS side-effectu. Navic docstring modulu tvrdi QStandardPaths/~/.config/koumes, kod dela dirExe/../config
+
+# ==== FsBridge (APPS/AI_T2LS/FsBridge.{h,cpp}) ====
+
+type: check
+id: 5
+scope: FsBridge (class)
+kind: class
+cpp: APPS/AI_T2LS/FsBridge.h:11
+py: fs_bridge.py:132
+what: QObject sandboxed FS + link resolver, JS bridge
+status: ok
+
+type: check
+id: 6
+scope: FsBridge::FsBridge (ctor)
+kind: ctor
+cpp: APPS/AI_T2LS/FsBridge.h:16 impl .cpp:19
+py: fs_bridge.py:136
+what: (allowedDir, parent) - clean root, install self as inst
+status: ok
+
+type: check
+id: 7
+scope: FsBridge::instRef_
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:19 impl .cpp:27
+py: fs_bridge.py:133
+what: static ref to singleton pointer (Python: _inst class attr)
+status: ok
+note: 0 externich calleru (jen inst()+ctor ve vlastnich souborech) - dead-check ambivalentni, chovani sedi
+
+type: check
+id: 8
+scope: FsBridge::inst
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:20
+py: fs_bridge.py:147
+what: singleton getter
+status: ok
+
+type: check
+id: 9
+scope: FsBridge::allowedRoot (Q_INVOKABLE)
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:23
+py: fs_bridge.py:181
+what: JS-callable getter
+status: ok
+
+type: check
+id: 10
+scope: FsBridge::setAllowedRoot
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:27 impl .cpp:42
+py: fs_bridge.py:171
+what: widen-only sandbox extend
+status: ok
+
+type: check
+id: 11
+scope: FsBridge::list (Q_INVOKABLE)
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:28 impl .cpp:60
+py: fs_bridge.py:185
+what: dir entries (dirs first, sorted)
+status: ok
+
+type: check
+id: 12
+scope: FsBridge::read (Q_INVOKABLE)
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:29 impl .cpp:71
+py: fs_bridge.py:200
+what: UTF-8 file content
+status: issue
+note: nevalidni UTF-8: C++ QString::fromUtf8 nahradi U+FFFD a vrati text; py open(encoding=utf-8) hodi UnicodeDecodeError, ktery NENI OSError, takze except OSError ho nechyti a propadne ven
+
+type: check
+id: 13
+scope: FsBridge::write (Q_INVOKABLE)
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:30 impl .cpp:80
+py: fs_bridge.py:210
+what: overwrite file UTF-8
+status: ok
+
+type: check
+id: 14
+scope: FsBridge::isDir (Q_INVOKABLE)
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:31 impl .cpp:90
+py: fs_bridge.py:221
+what: QFileInfo::isDir
+status: ok
+
+type: check
+id: 15
+scope: FsBridge::exists (Q_INVOKABLE)
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:32 impl .cpp:97
+py: fs_bridge.py:227
+what: QFileInfo::exists
+status: dead
+note: no callers in cvz/ - 0 v cpp/h, 0 jako fs.exists v html/js (isDir se z dirs.html vola, exists nikde)
+
+type: check
+id: 16
+scope: FsBridge::trash (Q_INVOKABLE)
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:35 impl .cpp:104
+py: fs_bridge.py:233
+what: QProcess gio trash (Python: subprocess.run gio)
+status: ok
+
+type: check
+id: 17
+scope: FsBridge::setSelection (Q_INVOKABLE)
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:38
+py: fs_bridge.py:252
+what: JS pushes selection JSON
+status: ok
+
+type: check
+id: 18
+scope: FsBridge::currentSelection
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:40
+py: fs_bridge.py:255
+what: getter for Python callers
+status: ok
+
+type: check
+id: 19
+scope: FsBridge::setSelectedDir (Q_INVOKABLE)
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:45
+py: fs_bridge.py:259
+what: HTML publishes selected dir
+status: ok
+
+type: check
+id: 20
+scope: FsBridge::setSelectedFile (Q_INVOKABLE)
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:46
+py: fs_bridge.py:263
+what: HTML publishes selected file
+status: ok
+
+type: check
+id: 21
+scope: FsBridge::setSelectedLine (Q_INVOKABLE)
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:47
+py: fs_bridge.py:267
+what: HTML publishes selected line
+status: ok
+
+type: check
+id: 22
+scope: FsBridge::followLink (Q_INVOKABLE)
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:52 impl .cpp:295
+py: fs_bridge.py:283
+what: resolve [[id]] link, open via bus
+status: ok
+
+type: check
+id: 23
+scope: FsBridge::validateLinks (Q_INVOKABLE)
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:58 impl .cpp:218
+py: fs_bridge.py:329
+what: rewrite all [[id]] to [[id::relpath]] or [[id::???]]
+status: ok
+
+type: check
+id: 24
+scope: FsBridge::exec (Q_INVOKABLE)
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:63 impl .cpp:344
+py: fs_bridge.py:390
+what: dispatch arbitrary CmdSys cmd from HTML
+status: ok
+
+type: check
+id: 25
+scope: FsBridge::currentSelectedDir
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:65
+py: fs_bridge.py:270
+what: getter
+status: ok
+
+type: check
+id: 26
+scope: FsBridge::currentSelectedFile
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:66
+py: fs_bridge.py:273
+what: getter
+status: ok
+
+type: check
+id: 27
+scope: FsBridge::currentSelectedLine
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:67
+py: fs_bridge.py:276
+what: getter
+status: ok
+
+type: check
+id: 28
+scope: FsBridge::lastFollowLog
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:70
+py: fs_bridge.py:279
+what: debug snapshot getter
+status: ok
+
+type: check
+id: 29
+scope: FsBridge::isInside (static)
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:74 impl .cpp:34
+py: fs_bridge.py:155
+what: path == dir or startswith dir+/
+status: ok
+
+type: check
+id: 30
+scope: FsBridge::isAllowed_
+kind: method
+cpp: APPS/AI_T2LS/FsBridge.h:79 impl .cpp:53
+py: fs_bridge.py:158
+what: sandbox check; Python also whitelists AppPaths.dir_config
+status: issue
+note: py _is_allowed additionally whitelists AppPaths.dir_config - C++ isAllowed_ has no such escape; py sandbox is strictly wider
+
+type: check
+id: 31
+scope: FsBridge::allowedDir_
+kind: data
+cpp: APPS/AI_T2LS/FsBridge.h:81
+py: fs_bridge.py:139
+what: sandbox root (cleaned abs)
+status: ok
+
+type: check
+id: 32
+scope: FsBridge::selection_
+kind: data
+cpp: APPS/AI_T2LS/FsBridge.h:82
+py: fs_bridge.py:140
+what: DOM selection JSON
+status: ok
+
+type: check
+id: 33
+scope: FsBridge::selectedDir_
+kind: data
+cpp: APPS/AI_T2LS/FsBridge.h:83
+py: fs_bridge.py:141
+what: HTML-selected dir
+status: ok
+
+type: check
+id: 34
+scope: FsBridge::selectedFile_
+kind: data
+cpp: APPS/AI_T2LS/FsBridge.h:84
+py: fs_bridge.py:142
+what: HTML-selected file
+status: ok
+
+type: check
+id: 35
+scope: FsBridge::selectedLine_
+kind: data
+cpp: APPS/AI_T2LS/FsBridge.h:85
+py: fs_bridge.py:143
+what: HTML-selected line
+status: ok
+
+type: check
+id: 36
+scope: FsBridge::lastFollowLog_
+kind: data
+cpp: APPS/AI_T2LS/FsBridge.h:86
+py: fs_bridge.py:144
+what: debug snapshot
+status: ok
+
+# FsBridge.cpp file-scope helpers
+type: check
+id: 37
+scope: findIdOrdinalInFile_ (static helper)
+kind: fn
+cpp: APPS/AI_T2LS/FsBridge.cpp:123
+py: fs_bridge.py:41
+what: parse .t2l records, find id, return 1-based ordinal
+status: ok
+
+type: check
+id: 38
+scope: rewriteLinkInFile_ (static helper)
+kind: fn
+cpp: APPS/AI_T2LS/FsBridge.cpp:159
+py: fs_bridge.py:75
+what: regex replace [[id]] with [[id::newpath]]
+status: issue
+note: py _rewrite_link_in_file skips write when text unchanged; C++ writes unconditionally - identical content, only mtime differs
+
+type: check
+id: 39
+scope: resolveIdInTree_ (static helper)
+kind: fn
+cpp: APPS/AI_T2LS/FsBridge.cpp:180
+py: fs_bridge.py:94
+what: BFS walk-up + subtree scan .t2l for id
+status: ok
+
+# ==== ChromaPage (APPS/AI_T2LS/ChromaPage.h) ====
+
+type: check
+id: 40
+scope: ChromaPage (class)
+kind: class
+cpp: APPS/AI_T2LS/ChromaPage.h:21
+py: chroma_page.py:28
+what: role-aware page; http/https route to www
+status: ok
+
+type: check
+id: 41
+scope: ChromaPage::ChromaPage (role ctor)
+kind: ctor
+cpp: APPS/AI_T2LS/ChromaPage.h:25
+py: chroma_page.py:31
+what: (role, parent) - store role
+status: ok
+
+type: check
+id: 42
+scope: ChromaPage::setRole
+kind: method
+cpp: APPS/AI_T2LS/ChromaPage.h:31
+py: chroma_page.py:39
+what: setter
+status: dead
+note: setRole 0 callers - jen vlastní deklarace; createWindow řeší explicitním ctorem
+
+type: check
+id: 43
+scope: ChromaPage::role
+kind: method
+cpp: APPS/AI_T2LS/ChromaPage.h:32
+py: chroma_page.py:42
+what: getter
+status: dead
+note: role() getter 0 callers; role_ se čte přímo v rámci třídy
+
+type: check
+id: 44
+scope: ChromaPage::acceptNavigationRequest
+kind: method
+cpp: APPS/AI_T2LS/ChromaPage.h:35
+py: chroma_page.py:45
+what: reject http/https main frame, bus.notifyWwwUrlRequested
+status: ok
+
+type: check
+id: 45
+scope: ChromaPage::createWindow
+kind: method
+cpp: APPS/AI_T2LS/ChromaPage.h:50
+py: chroma_page.py:59
+what: return child ChromaPage same role
+status: ok
+
+type: check
+id: 46
+scope: ChromaPage::role_
+kind: data
+cpp: APPS/AI_T2LS/ChromaPage.h:57
+py: chroma_page.py:32
+what: QString panel role
+status: ok
+
+# ==== ChromaWwwPage (APPS/AI_T2LS/ChromaWwwPage.h) ====
+
+type: check
+id: 47
+scope: ChromaWwwPage (class)
+kind: class
+cpp: APPS/AI_T2LS/ChromaWwwPage.h:19
+py: chroma_www_page.py:29
+what: www-only page; reject file/data/javascript/qrc
+status: ok
+
+type: check
+id: 48
+scope: ChromaWwwPage::acceptNavigationRequest
+kind: method
+cpp: APPS/AI_T2LS/ChromaWwwPage.h:25
+py: chroma_www_page.py:30
+what: allow http/https/about main frame; sub-frames unrestricted
+status: ok
+
+# ==== PanelBus (APPS/AI_T2LS/PanelBus.h) - 9 signals + 9 slots ====
+
+type: check
+id: 49
+scope: PanelBus (class)
+kind: class
+cpp: APPS/AI_T2LS/PanelBus.h:18
+py: panel_bus.py:29
+what: pub/sub bus between HTML panels
+status: ok
+
+type: check
+id: 50
+scope: PanelBus::dirChanged (signal)
+kind: signal
+cpp: APPS/AI_T2LS/PanelBus.h:25
+py: panel_bus.py:30
+what: mid dir navigated
+status: ok
+
+type: check
+id: 51
+scope: PanelBus::fileSelected (signal)
+kind: signal
+cpp: APPS/AI_T2LS/PanelBus.h:27
+py: panel_bus.py:31
+what: file picked
+status: ok
+
+type: check
+id: 52
+scope: PanelBus::fileSelectedRightmost (signal)
+kind: signal
+cpp: APPS/AI_T2LS/PanelBus.h:29
+py: panel_bus.py:32
+what: p2 target
+status: ok
+
+type: check
+id: 53
+scope: PanelBus::fileSelectedForBrowse (signal)
+kind: signal
+cpp: APPS/AI_T2LS/PanelBus.h:32
+py: panel_bus.py:33
+what: link-follow with line hint
+status: ok
+
+type: check
+id: 54
+scope: PanelBus::sandboxChanged (signal)
+kind: signal
+cpp: APPS/AI_T2LS/PanelBus.h:35
+py: panel_bus.py:34
+what: sandbox widened
+status: ok
+
+type: check
+id: 55
+scope: PanelBus::lineChanged (signal)
+kind: signal
+cpp: APPS/AI_T2LS/PanelBus.h:38
+py: panel_bus.py:35
+what: external caller wants line jump
+status: ok
+
+type: check
+id: 56
+scope: PanelBus::wwwUrlRequested (signal)
+kind: signal
+cpp: APPS/AI_T2LS/PanelBus.h:43
+py: panel_bus.py:36
+what: view refused http, route to www
+status: ok
+
+type: check
+id: 57
+scope: PanelBus::selectionChanged (signal)
+kind: signal
+cpp: APPS/AI_T2LS/PanelBus.h:46
+py: panel_bus.py:37
+what: panel/file/line selection changed
+status: ok
+
+type: check
+id: 58
+scope: PanelBus::panelShow (signal)
+kind: signal
+cpp: APPS/AI_T2LS/PanelBus.h:50
+py: panel_bus.py:38
+what: unified panel loader
+status: ok
+
+type: check
+id: 59
+scope: PanelBus::notifyDirChange (slot)
+kind: method
+cpp: APPS/AI_T2LS/PanelBus.h:53
+py: panel_bus.py:44
+what: Q_INVOKABLE emit dirChanged
+status: ok
+
+type: check
+id: 60
+scope: PanelBus::notifyFileSelected (slot)
+kind: method
+cpp: APPS/AI_T2LS/PanelBus.h:54
+py: panel_bus.py:48
+what: Q_INVOKABLE emit fileSelected
+status: ok
+
+type: check
+id: 61
+scope: PanelBus::notifyFileSelectedRightmost (slot)
+kind: method
+cpp: APPS/AI_T2LS/PanelBus.h:55
+py: panel_bus.py:52
+what: Q_INVOKABLE
+status:
+
+type: check
+id: 62
+scope: PanelBus::notifyFileSelectedForBrowse (slot)
+kind: method
+cpp: APPS/AI_T2LS/PanelBus.h:56
+py: panel_bus.py:56
+what: Q_INVOKABLE
+status:
+
+type: check
+id: 63
+scope: PanelBus::notifySandboxChanged (slot)
+kind: method
+cpp: APPS/AI_T2LS/PanelBus.h:57
+py: panel_bus.py:60
+what: Q_INVOKABLE
+status:
+
+type: check
+id: 64
+scope: PanelBus::notifyLineChanged (slot)
+kind: method
+cpp: APPS/AI_T2LS/PanelBus.h:58
+py: panel_bus.py:64
+what: Q_INVOKABLE
+status:
+
+type: check
+id: 65
+scope: PanelBus::notifyWwwUrlRequested (slot)
+kind: method
+cpp: APPS/AI_T2LS/PanelBus.h:59
+py: panel_bus.py:68
+what: Q_INVOKABLE
+status:
+
+type: check
+id: 66
+scope: PanelBus::notifySelectionChanged (slot)
+kind: method
+cpp: APPS/AI_T2LS/PanelBus.h:60
+py: panel_bus.py:72
+what: Q_INVOKABLE
+status:
+
+type: check
+id: 67
+scope: PanelBus::notifyPanelShow (slot)
+kind: method
+cpp: APPS/AI_T2LS/PanelBus.h:61
+py: panel_bus.py:76
+what: Q_INVOKABLE - viewer arg default ""
+status:
+
+# ==== Main.cpp static helpers ====
+
+type: check
+id: 68
+scope: wwwProfile_ (static fn)
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:65
+py: main_window.py:80
+what: isolated QWebEngineProfile pro www panely
+status:
+
+type: check
+id: 69
+scope: setupPanel_ (static fn)
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:81
+py: main_window.py:186
+what: attach ChromaPage + WebChannel + inject script + initial load
+status:
+
+type: check
+id: 70
+scope: findViewerHtml_ (static fn)
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:126
+py: viewer_resolver.py:45
+what: walk-up dir for .t2l/<name>.html or <name>.html
+status:
+
+type: check
+id: 71
+scope: readViewerFromT2l_ (static fn)
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:151
+py: viewer_resolver.py:79
+what: parse .t2l for first type:viewer / name:X
+status:
+
+type: check
+id: 72
+scope: readViewerName_ (static fn)
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:177
+py: viewer_resolver.py:107
+what: read <dirname>/<basename>.t2l for dir-level directive
+status:
+
+type: check
+id: 73
+scope: readAllViewersFromConfig_ (static fn)
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:190
+py: viewer_resolver.py:165
+what: all matching viewers from one config.t2l
+status:
+
+type: check
+id: 74
+scope: readBrowseViewersFromConfig_ (static fn)
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:224
+py: viewer_resolver.py:169
+what: only sys__browse_support:true
+status:
+
+type: check
+id: 75
+scope: readBrowseViewers_ (static fn)
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:260
+py: viewer_resolver.py:194
+what: walk-up variant
+status:
+
+type: check
+id: 76
+scope: readAllViewers_ (static fn)
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:290
+py: viewer_resolver.py:199
+what: full precedence (in-file + walk-up), deduped
+status:
+
+type: check
+id: 77
+scope: readViewerForExt_ (static fn)
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:326
+py: viewer_resolver.py:212
+what: first of read_all_viewers
+status:
+
+type: check
+id: 78
+scope: fileHasLinks_ (static fn)
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:337
+py:
+what: helper if file has [[...]] - defined but not called (dead code)
+status: dead
+
+type: check
+id: 79
+scope: dirHasLinks_ (static fn)
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:348
+py:
+what: helper if dir's .t2l has [[...]] - dead code
+status: dead
+
+type: check
+id: 80
+scope: pathFromIndex_ (static fn)
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:366
+py: main_window.py:43
+what: shorten "<sandbox>/rel" or full abs if outside
+status:
+
+type: check
+id: 81
+scope: isOutsideSandbox_ (static fn)
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:382
+py: main_window.py:56
+what: True if abs not startswith root
+status:
+
+type: check
+id: 82
+scope: setCmdTooltip_ (static fn)
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:408
+py:
+what: Q_PROPERTY marker + visual style for cmd tooltip (Python: plain setToolTip)
+status: note
+
+type: check
+id: 83
+scope: makeLabelClickable_ (static fn)
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:449
+py:
+what: makes label clickable to fire cmd (Python: SKIP - Petr said info_selection self-serves)
+status: note
+
+type: check
+id: 84
+scope: syncCopyBtn_ (static fn)
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:463
+py: main_window.py:553
+what: show/hide copy btn linked to label (Python: _sync_copy_btn method)
+status:
+
+type: check
+id: 85
+scope: setInfoPath_ (static fn)
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:470
+py: main_window.py:558
+what: label text = shorten path + red if outside + cmdPath property + sync copy
+status:
+
+type: check
+id: 86
+scope: setInfoViewer_ (static fn)
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:491
+py: main_window.py:586
+what: NATIVE or shortened path; cmdPath property; sync copy btn
+status:
+
+# ==== Panel_ struct + wrapPanel_ (APPS/AI_T2LS/Main.cpp) ====
+
+type: check
+id: 87
+scope: Panel_ (struct)
+kind: struct
+cpp: APPS/AI_T2LS/Main.cpp:513
+py: panel.py:81
+what: struct holding widget refs (Python: dataclass)
+status:
+
+type: check
+id: 88
+scope: Panel_::wrap
+kind: data
+cpp: APPS/AI_T2LS/Main.cpp:514
+py: panel.py:82
+what: outer QWidget
+status:
+
+type: check
+id: 89
+scope: Panel_::custom/dflt/log (legacy)
+kind: data
+cpp: APPS/AI_T2LS/Main.cpp:515-517
+py: panel.py:83
+what: 3 legacy switch buttons
+status:
+
+type: check
+id: 90
+scope: Panel_::viewerBar
+kind: data
+cpp: APPS/AI_T2LS/Main.cpp:518
+py: panel.py:86
+what: container for dynamic viewer buttons
+status:
+
+type: check
+id: 91
+scope: Panel_::fm
+kind: data
+cpp: APPS/AI_T2LS/Main.cpp:519
+py: panel.py:87
+what: fm button
+status:
+
+type: check
+id: 92
+scope: Panel_::hideParent
+kind: data
+cpp: APPS/AI_T2LS/Main.cpp:520
+py: panel.py:88
+what: hide left panel toggle (mid-only)
+status:
+
+type: check
+id: 93
+scope: Panel_::hideRightmost
+kind: data
+cpp: APPS/AI_T2LS/Main.cpp:521
+py: panel.py:89
+what: hide p2 toggle (detail-only)
+status:
+
+type: check
+id: 94
+scope: Panel_::dirUp
+kind: data
+cpp: APPS/AI_T2LS/Main.cpp:522
+py: panel.py:90
+what: dir up button (mid-only)
+status:
+
+type: check
+id: 95
+scope: Panel_::revealDir
+kind: data
+cpp: APPS/AI_T2LS/Main.cpp:523
+py: panel.py:91
+what: reveal dir button (detail-only)
+status:
+
+type: check
+id: 96
+scope: Panel_::refresh
+kind: data
+cpp: APPS/AI_T2LS/Main.cpp:524
+py: panel.py:92
+what: refresh button (all panels)
+status:
+
+type: check
+id: 97
+scope: Panel_::tabToggle
+kind: data
+cpp: APPS/AI_T2LS/Main.cpp:525
+py: panel.py:93
+what: view/www cycle (tabbable only)
+status:
+
+type: check
+id: 98
+scope: Panel_::infoPath/infoViewer/infoSelection
+kind: data
+cpp: APPS/AI_T2LS/Main.cpp:526-528
+py: panel.py:94-96
+what: 3 info bar rows
+status:
+
+type: check
+id: 99
+scope: Panel_::copyPath/copyViewer/copySelection
+kind: data
+cpp: APPS/AI_T2LS/Main.cpp:529-531
+py: panel.py:97-99
+what: 3 copy buttons
+status:
+
+type: check
+id: 100
+scope: Panel_::urlInput
+kind: data
+cpp: APPS/AI_T2LS/Main.cpp:532
+py: panel.py:100
+what: QLineEdit for www URL (tabbable only)
+status:
+
+type: check
+id: 101
+scope: Panel_::infoBar
+kind: data
+cpp: APPS/AI_T2LS/Main.cpp:533
+py: panel.py:101
+what: hideable info section widget
+status:
+
+type: check
+id: 102
+scope: Panel_::stack
+kind: data
+cpp: APPS/AI_T2LS/Main.cpp:534
+py: panel.py:102
+what: QStackedWidget for view/www swap
+status:
+
+type: check
+id: 103
+scope: Panel_::wwwView
+kind: data
+cpp: APPS/AI_T2LS/Main.cpp:535
+py: panel.py:103
+what: QWebEngineView for www
+status:
+
+type: check
+id: 104
+scope: wrapPanel_ (static fn)
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:543
+py: panel.py:124
+what: build Panel widget = toolbar + info bar + content stack
+status:
+
+# ==== rebuildViewerBar (APPS/AI_T2LS/Main.cpp) ====
+
+type: check
+id: 105
+scope: rebuildViewerBar (static fn)
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:753
+py: viewer_bar.py:42
+what: dynamic viewer buttons per file + txt + native
+status:
+
+# ==== Main.cpp main() inline lambdas / handlers ====
+
+type: check
+id: 106
+scope: injected JS (injectSrc)
+kind: data
+cpp: APPS/AI_T2LS/Main.cpp:937
+py: main_window.py:103
+what: qwebchannel.js + __chroma bootstrap (Python: bundled qwebchannel.js + CHROMA_BOOTSTRAP_JS)
+status:
+
+type: check
+id: 107
+scope: [[id]] linkify block
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:993
+py: main_window.py:145
+what: window.__chroma.linkify + global click handler
+status:
+
+type: check
+id: 108
+scope: setToggleFn("left") lambda
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:1245
+py: toolbar.py:66
+what: left panel hide toggle with splitter pixel shuffle (Python: simplified setVisible)
+status: note
+
+type: check
+id: 109
+scope: setToggleFn("p2") lambda
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:1304
+py: toolbar.py:71
+what: p2 hide toggle with splitter shuffle (Python: simplified)
+status: note
+
+type: check
+id: 110
+scope: wireTabs lambda
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:1328
+py: toolbar.py:91
+what: view/www tab flip + url_input Enter
+status:
+
+type: check
+id: 111
+scope: updateCustom lambda
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:1387
+py: main_window.py:485
+what: dir viewer switch (custom/dflt) + info bars + midView load
+status:
+
+type: check
+id: 112
+scope: refreshDirUp lambda
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:1499
+py: main_window.py:434
+what: red dir_up when parent leaves ORIGINAL sandbox
+status:
+
+type: check
+id: 113
+scope: updateDetail lambda
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:1583
+py: main_window.py:598
+what: p1 file load + rebuild_viewer_bar + register switch_fn
+status:
+
+type: check
+id: 114
+scope: fileSelectedForBrowse handler lambda
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:1625
+py: main_window.py:390
+what: chroma-link click - prefer browse-support viewer, load with ?line=N
+status:
+
+type: check
+id: 115
+scope: updateRightmost lambda
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:1687
+py: main_window.py:635
+what: p2 file load + rebuild_viewer_bar + register switch_fn
+status:
+
+type: check
+id: 116
+scope: bus.panelShow handler (left branch)
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:1134
+py: main_window.py:465
+what: load HTML in left_view with HTML-specific query params
+status:
+
+type: check
+id: 117
+scope: wireClickToP1 lambda
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:1190
+py:
+what: makes info labels clickable (Python: SKIP per Petr; info_selection self-serves)
+status: note
+
+type: check
+id: 118
+scope: main() bootstrap sequence
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:825
+py: main.py:116
+what: parse args, register cmds, LogGuard, CmdBridge, StdinMonitor, WindowPersist, 4-panel window
+status:
+
+type: check
+id: 119
+scope: dir_up button click handler
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:1518
+py: cmds_chroma.py:476
+what: sandbox widen check + dispatch dir_up cmd
+status:
+
+type: check
+id: 120
+scope: reveal_dir button click handler
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:1553
+py: cmds_chroma.py:492
+what: sandbox widen check + dispatch reveal_dir cmd
+status:
+
+type: check
+id: 121
+scope: refresh buttons wiring
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:1540
+py: toolbar.py:49
+what: 4 refresh buttons -> panel_reload cmd
+status:
+
+type: check
+id: 122
+scope: left panel 3-tab wiring (bookmarks/dirs-upper/log)
+kind: fn
+cpp: APPS/AI_T2LS/Main.cpp:1117
+py: main_window.py:336
+what: click each tab -> panel_show left <html>
+status:
+
+# ==== Cmds_chroma - state accessors + setters ====
+
+type: check
+id: 123
+scope: Cmds_chroma (class)
+kind: class
+cpp: APPS/AI_T2LS/Cmds_chroma.h:28
+py: cmds_chroma.py:40
+what: chroma commands namespace + shared state
+status:
+
+type: check
+id: 124
+scope: Cmds_chroma::pageRef_/detailPageRef_/rightmostPageRef_
+kind: method
+cpp: APPS/AI_T2LS/Cmds_chroma.h:32-37
+py: cmds_chroma.py:41-43
+what: 3 static QWebEnginePage refs
+status:
+
+type: check
+id: 125
+scope: Cmds_chroma::detailViewRef_/rightmostViewRef_
+kind: method
+cpp: APPS/AI_T2LS/Cmds_chroma.h:40-43
+py: cmds_chroma.py:44-45
+what: 2 static QWebEngineView refs (screenshot)
+status:
+
+type: check
+id: 126
+scope: Cmds_chroma::targetPage_/targetView_
+kind: method
+cpp: APPS/AI_T2LS/Cmds_chroma.h:46-51
+py: cmds_chroma.py:141
+what: pick page/view by --p2 arg
+status:
+
+type: check
+id: 127
+scope: Cmds_chroma::lastDir_/lastFile_
+kind: method
+cpp: APPS/AI_T2LS/Cmds_chroma.h:55-58
+py: cmds_chroma.py:47-48
+what: static QString trackers
+status:
+
+type: check
+id: 128
+scope: Cmds_chroma::lastDirViewer_/lastFileViewer_
+kind: method
+cpp: APPS/AI_T2LS/Cmds_chroma.h:62-65
+py: cmds_chroma.py:49-50
+what: static viewer name/path trackers
+status:
+
+type: check
+id: 129
+scope: Cmds_chroma::busRef_
+kind: method
+cpp: APPS/AI_T2LS/Cmds_chroma.h:68-69
+py: cmds_chroma.py:52
+what: PanelBus* ref
+status:
+
+type: check
+id: 130
+scope: Cmds_chroma::PanelSel (struct)
+kind: struct
+cpp: APPS/AI_T2LS/Cmds_chroma.h:74
+py: cmds_chroma.py:35
+what: {file, line} dataclass
+status:
+
+type: check
+id: 131
+scope: Cmds_chroma::selDir_/selP1_/selP2_
+kind: method
+cpp: APPS/AI_T2LS/Cmds_chroma.h:75-77
+py: cmds_chroma.py:54-56
+what: 3 PanelSel refs
+status:
+
+type: check
+id: 132
+scope: Cmds_chroma::selFor_
+kind: method
+cpp: APPS/AI_T2LS/Cmds_chroma.h:78
+py: cmds_chroma.py:121
+what: PanelSel by panel name
+status:
+
+type: check
+id: 133
+scope: Cmds_chroma::setSelFile
+kind: method
+cpp: APPS/AI_T2LS/Cmds_chroma.h:91
+py: cmds_chroma.py:131
+what: update sel + notify selectionChanged
+status:
+
+type: check
+id: 134
+scope: Cmds_chroma::setViewerSwitchFn / setReloadFn / setToggleFn / setTabToggleFn
+kind: method
+cpp: APPS/AI_T2LS/Cmds_chroma.h:99-123
+py: cmds_chroma.py:105-117
+what: 4 dispatch dict setters
+status:
+
+type: check
+id: 135
+scope: Cmds_chroma::preselects_
+kind: method
+cpp: APPS/AI_T2LS/Cmds_chroma.h:126
+py: cmds_chroma.py:62
+what: static map panel -> preselect path
+status:
+
+type: check
+id: 136
+scope: Cmds_chroma::registerCmds
+kind: method
+cpp: APPS/AI_T2LS/Cmds_chroma.h:130
+py: cmds_chroma.py:175
+what: register all chroma commands
+status:
+
+# ==== Cmds_chroma - registered commands ====
+
+type: check
+id: 137
+scope: CMD:select
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:136
+py: cmds_chroma.py:178
+what: select <panel> <line>
+status:
+
+type: check
+id: 138
+scope: CMD:show
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:151
+py: cmds_chroma.py:193
+what: show <panel> - lineChanged or fileSelected
+status:
+
+type: check
+id: 139
+scope: CMD:get_selection
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:170
+py: cmds_chroma.py:211
+what: <file>:<line>
+status:
+
+type: check
+id: 140
+scope: CMD:preselect
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:184
+py: cmds_chroma.py:222
+what: preselect <panel> <path>
+status:
+
+type: check
+id: 141
+scope: CMD:panel_show
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:198
+py: cmds_chroma.py:234
+what: panel_show <left|dir|p1|p2> <file> [viewer]
+status:
+
+type: check
+id: 142
+scope: CMD:tab_toggle
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:215
+py: cmds_chroma.py:250
+what: tab_toggle <p1|p2>
+status:
+
+type: check
+id: 143
+scope: CMD:panel_toggle
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:228
+py: cmds_chroma.py:262
+what: panel_toggle <left|p2>
+status:
+
+type: check
+id: 144
+scope: CMD:panel_reload
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:241
+py: cmds_chroma.py:274
+what: panel_reload <panel>
+status:
+
+type: check
+id: 145
+scope: CMD:viewer_switch
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:255
+py: cmds_chroma.py:286
+what: viewer_switch <panel> <viewer>
+status:
+
+type: check
+id: 146
+scope: CMD:dir_file / dir_line / dir_preselect / p1_* / p2_*
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:268-276
+py: cmds_chroma.py:299
+what: 9 shorthand readers
+status:
+
+type: check
+id: 147
+scope: CMD:chroma_selection
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:280
+py: cmds_chroma.py:322
+what: fs.currentSelection JSON
+status:
+
+type: check
+id: 148
+scope: CMD:chroma_dir
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:290
+py: cmds_chroma.py:330
+what: selected dir or last viewed
+status:
+
+type: check
+id: 149
+scope: CMD:chroma_file
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:300
+py: cmds_chroma.py:337
+what: selected file or last viewed
+status:
+
+type: check
+id: 150
+scope: CMD:chroma_line
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:310
+py: cmds_chroma.py:344
+what: selected line
+status:
+
+type: check
+id: 151
+scope: CMD:debug_follow
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:321
+py: cmds_chroma.py:351
+what: debug_follow <id> [--start] - invoke fs.followLink + return log
+status:
+
+type: check
+id: 152
+scope: CMD:debug_follow_log
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:338
+py: cmds_chroma.py:369
+what: return last follow log
+status:
+
+type: check
+id: 153
+scope: CMD:chroma_dir_viewer
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:347
+py: cmds_chroma.py:377
+what: current mid viewer
+status:
+
+type: check
+id: 154
+scope: CMD:chroma_file_viewer
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:355
+py: cmds_chroma.py:382
+what: current detail viewer
+status:
+
+type: check
+id: 155
+scope: CMD:chroma_setdir
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:363
+py: cmds_chroma.py:387
+what: chroma_setdir <path> - notifyDirChange
+status:
+
+type: check
+id: 156
+scope: CMD:chroma_setfile
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:379
+py: cmds_chroma.py:400
+what: chroma_setfile <path> [--p2]
+status:
+
+type: check
+id: 157
+scope: CMD:chroma_setline
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:396
+py: cmds_chroma.py:418
+what: chroma_setline <n>
+status:
+
+type: check
+id: 158
+scope: CMD:chroma_html
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:409
+py: cmds_chroma.py:434
+what: full HTML (async sync-wrap)
+status:
+
+type: check
+id: 159
+scope: CMD:chroma_text
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:421
+py: cmds_chroma.py:442
+what: plain text (async sync-wrap)
+status:
+
+type: check
+id: 160
+scope: CMD:chroma_screenshot
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:433
+py: cmds_chroma.py:450
+what: PNG grab
+status:
+
+type: check
+id: 161
+scope: CMD:dir_up
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:448
+py: cmds_chroma.py:476
+what: navigate mid to parent (Python: added sandbox widen)
+status:
+
+type: check
+id: 162
+scope: CMD:reveal_dir
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:463
+py: cmds_chroma.py:492
+what: mid to parent of last_file (Python: added sandbox widen)
+status:
+
+type: check
+id: 163
+scope: CMD:chroma_openfm
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:477
+py: cmds_chroma.py:508
+what: xdg-open dir
+status:
+
+type: check
+id: 164
+scope: CMD:open_extern
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:488
+py: cmds_chroma.py:517
+what: URL google-chrome else xdg-open
+status:
+
+type: check
+id: 165
+scope: CMD:chroma_reload
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:500
+py: cmds_chroma.py:530
+what: reload mid page
+status:
+
+type: check
+id: 166
+scope: CMD:chroma_reload_detail
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:510
+py: cmds_chroma.py:538
+what: reload detail page
+status:
+
+type: check
+id: 167
+scope: CMD:chroma_style
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:520
+py: cmds_chroma.py:598
+what: wrap selection in span style
+status:
+
+type: check
+id: 168
+scope: CMD:chroma_unwrap
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:552
+py: cmds_chroma.py:612
+what: remove nearest wrapping span
+status:
+
+type: check
+id: 169
+scope: CMD:chroma_class
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_chroma.h:580
+py: cmds_chroma.py:620
+what: wrap selection in span class
+status:
+
+# ==== Cmds_www (APPS/AI_T2LS/Cmds_www.h) ====
+
+type: check
+id: 170
+scope: Cmds_www (class)
+kind: class
+cpp: APPS/AI_T2LS/Cmds_www.h:26
+py: cmds_www.py:31
+what: www commands namespace + state
+status:
+
+type: check
+id: 171
+scope: Cmds_www::detailRef_/rightmostRef_
+kind: method
+cpp: APPS/AI_T2LS/Cmds_www.h:28-29
+py: cmds_www.py:32-33
+what: 2 static QWebEngineView refs
+status:
+
+type: check
+id: 172
+scope: Cmds_www::setDetailWww/setRightmostWww
+kind: method
+cpp: APPS/AI_T2LS/Cmds_www.h:30-31
+py: cmds_www.py:36-40
+what: setters
+status:
+
+type: check
+id: 173
+scope: Cmds_www::target_
+kind: method
+cpp: APPS/AI_T2LS/Cmds_www.h:34
+py: cmds_www.py:44
+what: pick view by --panel arg
+status:
+
+type: check
+id: 174
+scope: Cmds_www::registerCmds
+kind: method
+cpp: APPS/AI_T2LS/Cmds_www.h:42
+py: cmds_www.py:91
+what: register 9 www commands
+status:
+
+type: check
+id: 175
+scope: CMD:www_open
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_www.h:45
+py: cmds_www.py:94
+what: www_open <url> [--panel]
+status:
+
+type: check
+id: 176
+scope: CMD:www_url
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_www.h:59
+py: cmds_www.py:110
+what: current URL
+status:
+
+type: check
+id: 177
+scope: CMD:www_html
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_www.h:68
+py: cmds_www.py:118
+what: full HTML
+status:
+
+type: check
+id: 178
+scope: CMD:www_text
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_www.h:80
+py: cmds_www.py:126
+what: plain text
+status:
+
+type: check
+id: 179
+scope: CMD:www_selection
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_www.h:93
+py: cmds_www.py:134
+what: JS getSelection().toString()
+status:
+
+type: check
+id: 180
+scope: CMD:www_screenshot
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_www.h:108
+py: cmds_www.py:143
+what: PNG grab
+status:
+
+type: check
+id: 181
+scope: CMD:www_back
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_www.h:121
+py: cmds_www.py:157
+what: history back
+status:
+
+type: check
+id: 182
+scope: CMD:www_forward
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_www.h:130
+py: cmds_www.py:165
+what: history forward
+status:
+
+type: check
+id: 183
+scope: CMD:www_reload
+kind: cmd
+cpp: APPS/AI_T2LS/Cmds_www.h:139
+py: cmds_www.py:173
+what: reload
+status:
+
+# ==== WindowPersist (APPS/AI_T2LS/WindowPersist.h) ====
+
+type: check
+id: 184
+scope: WindowPersist (class)
+kind: class
+cpp: APPS/AI_T2LS/WindowPersist.h:24
+py: window_persist.py:64
+what: save/restore geometry via config.t2l set_window cmd
+status:
+
+type: check
+id: 185
+scope: WindowPersist::mainWindowRef_
+kind: method
+cpp: APPS/AI_T2LS/WindowPersist.h:26
+py: window_persist.py:65
+what: static QWidget* ref
+status:
+
+type: check
+id: 186
+scope: WindowPersist::install
+kind: method
+cpp: APPS/AI_T2LS/WindowPersist.h:30
+py: window_persist.py:68
+what: remember + register cmds + wire aboutToQuit save
+status:
+
+type: check
+id: 187
+scope: WindowPersist::screenIndex_
+kind: method
+cpp: APPS/AI_T2LS/WindowPersist.h:41
+py: window_persist.py:74
+what: which screen widget is on (-1 if unknown)
+status:
+
+type: check
+id: 188
+scope: WindowPersist::serialize_
+kind: method
+cpp: APPS/AI_T2LS/WindowPersist.h:53
+py: window_persist.py:83
+what: format "set_window x y w h idx sw sh"
+status:
+
+type: check
+id: 189
+scope: WindowPersist::saveInline_
+kind: method
+cpp: APPS/AI_T2LS/WindowPersist.h:66
+py: window_persist.py:95
+what: direct save (safe from aboutToQuit)
+status:
+
+type: check
+id: 190
+scope: WindowPersist::registerCmds_
+kind: method
+cpp: APPS/AI_T2LS/WindowPersist.h:76
+py: window_persist.py:104
+what: register set_window + save_window_position
+status:
+
+type: check
+id: 191
+scope: CMD:set_window
+kind: cmd
+cpp: APPS/AI_T2LS/WindowPersist.h:77
+py: window_persist.py:107
+what: restore geometry with screen match check
+status:
+
+type: check
+id: 192
+scope: CMD:save_window_position
+kind: cmd
+cpp: APPS/AI_T2LS/WindowPersist.h:119
+py: window_persist.py:153
+what: serialize + append to config.t2l
+status:
+
+# ==== AppUtility (dependency) ====
+
+type: check
+id: 193
+scope: AppUtility::replaceOrAppendInConfig
+kind: method
+cpp: base2/app_common/AppUtility.h:28
+py: window_persist.py:38
+what: read config.t2l, find line by cmd name, replace or append
+status:
+
+# ==== Python-specific glue (no direct C++ analog) ====
+
+type: check
+id: 194
+scope: _PanelInfo helper class
+kind: class
+cpp:
+py: main_window.py:209
+what: tiny QObject exposed to JS via WebChannel as "panel" (Python-specific for role())
+status: note
+
+type: check
+id: 195
+scope: MainWindow class
+kind: class
+cpp: (C++ uses free QWidget + main() flow)
+py: main_window.py:221
+what: Python OO wrapper for main window init + bus handlers
+status: note
+
+type: check
+id: 196
+scope: MainWindow._drain_timer
+kind: data
+cpp: (Qt QueuedConnection auto)
+py: main_window.py:236
+what: QTimer 50ms drain _deferred queue
+status: note
+
+type: check
+id: 197
+scope: MainWindow._on_dir_changed
+kind: fn
+cpp: (bus.dirChanged handler Main.cpp:1434)
+py: main_window.py:569
+what: loop-guard skip if same last_dir + _load_dir
+status:
+
+type: check
+id: 198
+scope: MainWindow._on_file_selected
+kind: fn
+cpp: (updateDetail Main.cpp:1622)
+py: main_window.py:598
+what: load_fn + switch_fn + rebuild_viewer_bar for p1
+status:
+
+type: check
+id: 199
+scope: MainWindow._on_file_selected_rightmost
+kind: fn
+cpp: (updateRightmost Main.cpp:1728)
+py: main_window.py:635
+what: load_fn + switch_fn + rebuild_viewer_bar for p2
+status:
+
+type: check
+id: 200
+scope: MainWindow._on_file_selected_for_browse
+kind: fn
+cpp: (Main.cpp:1625 lambda)
+py: main_window.py:390
+what: prefer browse-support viewer, load with line
+status:
+
+type: check
+id: 201
+scope: MainWindow._on_www_url_requested
+kind: fn
+cpp: (Main.cpp:1357 handler)
+py: main_window.py:667
+what: route to opposite tabbable panel www
+status:
+
+type: check
+id: 202
+scope: MainWindow._on_selection_changed
+kind: fn
+cpp: (Main.cpp:1277 handler)
+py: main_window.py:671
+what: update info_selection per panel + sync copy btn
+status:
+
+type: check
+id: 203
+scope: MainWindow._on_panel_show
+kind: fn
+cpp: (bus.panelShow handler Main.cpp:1134)
+py: main_window.py:452
+what: router for left/dir/p1/p2
+status:
+
+type: check
+id: 204
+scope: MainWindow._on_sandbox_changed
+kind: fn
+cpp: (JS-side in dirs.html)
+py: main_window.py:449
+what: no-op stub
+status: note
+
+type: check
+id: 205
+scope: MainWindow._on_line_changed
+kind: fn
+cpp: (viewers subscribe JS-side)
+py: main_window.py:431
+what: no-op stub
+status: note
+
+type: check
+id: 206
+scope: MainWindow._show_left_html
+kind: fn
+cpp: (Main.cpp:1138 bus.panelShow left branch)
+py: main_window.py:465
+what: load HTML in left with HTML-specific query params
+status:
+
+type: check
+id: 207
+scope: MainWindow._load_view_html
+kind: fn
+cpp: (loadDetail / loadRightmost lambdas)
+py: main_window.py:574
+what: setUrl with role + file + optional line query
+status:
+
+# ==== main.py bootstrap (Python-specific split) ====
+
+type: check
+id: 208
+scope: main.parse_args
+kind: fn
+cpp: (C++ QCommandLineParser inline in main())
+py: main.py:38
+what: argparse wrapper
+status:
+
+type: check
+id: 209
+scope: main.bootstrap (headless-safe part)
+kind: fn
+cpp: (part of C++ main() init)
+py: main.py:53
+what: AppPaths, CmdsCmdSys, LogGuard, WsServerLite, CmdBridge, StdinMonitor
+status:
+
+type: check
+id: 210
+scope: main.register_gui_cmds
+kind: fn
+cpp: (C++ calls Cmds_chroma/Cmds_www::registerCmds inline)
+py: main.py:69
+what: lazy CmdsChroma + CmdsWww register (deferred import for headless-safe)
+status: note
+
+type: check
+id: 211
+scope: main.run_gui
+kind: fn
+cpp: (part of C++ main())
+py: main.py:77
+what: MainWindow + wire_toolbar + WindowPersist + app.exec
+status:
+
+type: check
+id: 212
+scope: main.run_headless
+kind: fn
+cpp: (not present in C++ - C++ always has GUI)
+py: main.py:104
+what: infinite sleep loop for WS + stdin daemon threads
+status: note
+
+# ==== _load_qwebchannel_js (Python-specific) ====
+
+type: check
+id: 213
+scope: _load_qwebchannel_js
+kind: fn
+cpp: (C++ uses Qt resource :/qtwebchannel/qwebchannel.js)
+py: main_window.py:88
+what: read bundled qwebchannel.js (PyQt6 nedistribuje Qt resource)
+status: note
+
+# ==== toolbar.py (Python-specific split of Main.cpp toolbar wiring) ====
+
+type: check
+id: 214
+scope: toolbar.wire_toolbar
+kind: fn
+cpp: (Main.cpp toolbar wiring section ~1500-1620)
+py: toolbar.py:41
+what: refresh + hide + tab + dir_nav + fm all wired
+status:
+
+type: check
+id: 215
+scope: toolbar._wire_reload
+kind: fn
+cpp: (Main.cpp:1532)
+py: toolbar.py:49
+what: setReloadFn + refresh button click -> panel_reload
+status:
+
+type: check
+id: 216
+scope: toolbar._wire_hide_toggles
+kind: fn
+cpp: (Main.cpp:1245 + 1304)
+py: toolbar.py:65
+what: hideParent + hideRightmost toggle wiring
+status:
+
+type: check
+id: 217
+scope: toolbar._wire_tab_toggles
+kind: fn
+cpp: (Main.cpp:1328 wireTabs)
+py: toolbar.py:91
+what: tab toggle + url_input Enter
+status:
+
+type: check
+id: 218
+scope: toolbar._wire_dir_navigation
+kind: fn
+cpp: (Main.cpp:1518 + 1553)
+py: toolbar.py:133
+what: dir_up (mid) + reveal_dir (detail) click wiring
+status:
+
+type: check
+id: 219
+scope: toolbar._wire_fm_buttons
+kind: fn
+cpp: (fm button click handlers)
+py: toolbar.py:145
+what: mid fm -> chroma_openfm; detail fm -> xdg-open last_file
+status:

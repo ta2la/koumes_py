@@ -417,7 +417,7 @@ class CmdsChroma:
 
         def chroma_setline(args, data, ctx):
             if args.count() < 2:
-                return args.append_error("chroma_setline: usage <line>")
+                return args.append_error("chroma_setline: usage <line> [--p2]")
             if cls._bus is None:
                 return args.append_error("chroma_setline: bus not set")
             try:
@@ -426,8 +426,13 @@ class CmdsChroma:
                 return args.append_error("chroma_setline: line must be integer")
             if line < 1:
                 return args.append_error("chroma_setline: line must be >= 1")
-            cls._bus.notify_line_changed(line)
+            to_p2 = args.get_arg("p2") is not None
+            if to_p2:
+                cls._bus.notify_line_changed_rightmost(line)
+            else:
+                cls._bus.notify_line_changed(line)
             args.append(str(line), "LINE")
+            args.append("p2" if to_p2 else "detail", "PANEL")
             return 0
         sys_.add("chroma_setline", chroma_setline, category="chroma")
 

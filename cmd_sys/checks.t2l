@@ -1,0 +1,1400 @@
+# cmd_sys - C++ as canonical source; find Python equivalent per item
+# scope: C++ item (Class::member, Namespace::fn, CMD:name, MACRO)
+# cpp: relative path from cvz root + line
+# py: filename:line in Python port (empty if missing)
+# status: empty=unchecked, ok=verified match, issue=diff (viz note), dead=C++ dead code / not-needed, cpp_specific=Qt/C++ runtime mechanismus v py bezpředmětný
+
+type: viewer
+name: checks
+
+# ==== CmdArg (base2/base2/CmdArg.h) ====
+
+type: check
+id: 1
+scope: CmdArg (class)
+kind: class
+cpp: base2/base2/CmdArg.h:27
+py: cmd_arg.py:24
+what: name/value pair
+status: ok
+
+type: check
+id: 2
+scope: CmdArg::CmdArg (ctor)
+kind: ctor
+cpp: base2/base2/CmdArg.h:31
+py: cmd_arg.py:24
+what: (name="", value="") - Python: dataclass auto ctor
+status: ok
+
+type: check
+id: 3
+scope: CmdArg::name
+kind: method
+cpp: base2/base2/CmdArg.h:36
+py: cmd_arg.py:25
+what: getter for name_ (QString) - Python: field access
+status: ok
+
+type: check
+id: 4
+scope: CmdArg::value
+kind: method
+cpp: base2/base2/CmdArg.h:37
+py: cmd_arg.py:26
+what: getter for value_ (QString) - Python: field access
+status: ok
+
+type: check
+id: 5
+scope: CmdArg::isNull
+kind: method
+cpp: base2/base2/CmdArg.h:39
+py: cmd_arg.py:28
+what: name.isEmpty && value.isEmpty
+status: ok
+
+type: check
+id: 6
+scope: CmdArg::name_
+kind: data
+cpp: base2/base2/CmdArg.h:48
+py: cmd_arg.py:25
+what: QString private field
+status: ok
+
+type: check
+id: 7
+scope: CmdArg::value_
+kind: data
+cpp: base2/base2/CmdArg.h:49
+py: cmd_arg.py:26
+what: QString private field
+status: ok
+
+# ==== CmdArgCol (base2/base2/CmdArgCol.{h,cpp}) ====
+
+type: check
+id: 8
+scope: CmdArgCol (class)
+kind: class
+cpp: base2/base2/CmdArgCol.h:29
+py: cmd_arg_col.py:32
+what: ordered collection of CmdArg
+status: ok
+
+type: check
+id: 9
+scope: CmdArgCol::EStyle
+kind: enum
+cpp: base2/base2/CmdArgCol.h:32
+py: cmd_arg_col.py:26
+what: AS_NORMAL/AS_FORMATTED/AS_JSON (Python: Style enum)
+status: ok
+
+type: check
+id: 10
+scope: CmdArgCol::CmdArgCol() (default ctor)
+kind: ctor
+cpp: base2/base2/CmdArgCol.h:34
+py: cmd_arg_col.py:33
+what: empty collection
+status: ok
+
+type: check
+id: 11
+scope: CmdArgCol::CmdArgCol(QString) (parse ctor)
+kind: ctor
+cpp: base2/base2/CmdArgCol.h:35 impl .cpp:32
+py: cmd_arg_col.py:33
+what: parse via CmdArgCol_parser
+status: ok
+
+type: check
+id: 12
+scope: CmdArgCol::append
+kind: method
+cpp: base2/base2/CmdArgCol.h:37 impl .cpp:40
+py: cmd_arg_col.py:41
+what: (value, name="") -> 1
+status: ok
+
+type: check
+id: 13
+scope: CmdArgCol::appendError
+kind: method
+cpp: base2/base2/CmdArgCol.h:38
+py: cmd_arg_col.py:45
+what: append(text, "ERROR")
+status: ok
+
+type: check
+id: 14
+scope: CmdArgCol::appendWarning
+kind: method
+cpp: base2/base2/CmdArgCol.h:39
+py: cmd_arg_col.py:48
+what: append(text, "WARNING")
+status: ok
+
+type: check
+id: 15
+scope: CmdArgCol::count
+kind: method
+cpp: base2/base2/CmdArgCol.h:40
+py: cmd_arg_col.py:51
+what: args_.count()
+status: ok
+
+type: check
+id: 16
+scope: CmdArgCol::get(size_t index)
+kind: method
+cpp: base2/base2/CmdArgCol.h:41 impl .cpp:47
+py: cmd_arg_col.py:57
+what: by index (empty CmdArg on OOR)
+status: ok
+
+type: check
+id: 17
+scope: CmdArgCol::get(name, implicit, index)
+kind: method
+cpp: base2/base2/CmdArgCol.h:42 impl .cpp:54
+py: cmd_arg_col.py:62
+what: get_by_name (implicit fallback if not found)
+status: ok
+
+type: check
+id: 18
+scope: CmdArgCol::getArg
+kind: method
+cpp: base2/base2/CmdArgCol.h:43 impl .cpp:66
+py: cmd_arg_col.py:71
+what: by name, returns const* / None
+status: dead
+note: no callers in cvz/ (jen decl+impl kopie v common/universe/base.h archivu)
+
+type: check
+id: 19
+scope: CmdArgCol::toString
+kind: method
+cpp: base2/base2/CmdArgCol.h:48 impl .cpp:78
+py: cmd_arg_col.py:80
+what: EStyle + last param (NORMAL/FORMATTED/JSON)
+status: ok
+
+type: check
+id: 20
+scope: CmdArgCol::sizeOccupied
+kind: method
+cpp: base2/base2/CmdArgCol.h:50
+py: cmd_arg_col.py:123
+what: sum of name+value lengths
+status: ok
+
+type: check
+id: 21
+scope: CmdArgCol::isNull
+kind: method
+cpp: base2/base2/CmdArgCol.h:56
+py: cmd_arg_col.py:126
+what: args_.isEmpty
+status: ok
+
+type: check
+id: 22
+scope: CmdArgCol::args_
+kind: data
+cpp: base2/base2/CmdArgCol.h:60
+py: cmd_arg_col.py:33
+what: QVector<CmdArg> (Python: List)
+status: ok
+
+# ==== CmdArgCol_parser (base2/base2/CmdArgCol_parser.{h,cpp}) ====
+
+type: check
+id: 23
+scope: CmdArgCol_parser (class)
+kind: class
+cpp: base2/base2/CmdArgCol_parser.h:28
+py: cmd_arg_col_parser.py:32
+what: static parser class
+status: ok
+
+type: check
+id: 24
+scope: CmdArgCol_parser::createList_old
+kind: method
+cpp: base2/base2/CmdArgCol_parser.h:34 impl .cpp:26
+py:
+what: legacy parser variant (NOT ported - Python has only current)
+status: dead
+
+type: check
+id: 25
+scope: CmdArgCol_parser::splitCustomAppend
+kind: method
+cpp: base2/base2/CmdArgCol_parser.h:36 impl .cpp:103
+py: cmd_arg_col_parser.py:38
+what: append helper (returns updated state via tuple in Python)
+status: ok
+
+type: check
+id: 26
+scope: CmdArgCol_parser::splitCustom
+kind: method
+cpp: base2/base2/CmdArgCol_parser.h:37 impl .cpp:136
+py: cmd_arg_col_parser.py:61
+what: main tokenizer state machine
+status: ok
+
+type: check
+id: 27
+scope: CmdArgCol_parser::createList
+kind: method
+cpp: base2/base2/CmdArgCol_parser.h:38 impl .cpp:251
+py: cmd_arg_col_parser.py:145
+what: 2nd stage - tokens to CmdArg
+status: ok
+
+type: check
+id: 28
+scope: CmdArgCol_parser::afs_single_test
+kind: method
+cpp: base2/base2/CmdArgCol_parser.h:40 impl .cpp:287
+py:
+what: HTML-formatted test output (NOT ported)
+status: dead
+
+type: check
+id: 29
+scope: CmdArgCol_parser::isJsonQuote_
+kind: method
+cpp: base2/base2/CmdArgCol_parser.h:42 impl .cpp:128
+py: cmd_arg_col_parser.py:34
+what: static helper - ch is quote?
+status: ok
+
+# ==== Cmd (base2/cmd_sys/Cmd.h) ====
+
+type: check
+id: 30
+scope: Cmd (class)
+kind: class
+cpp: base2/cmd_sys/Cmd.h:39
+py: cmd.py:29
+what: single command wrapper
+status: ok
+
+type: check
+id: 31
+scope: Cmd::Cmd (ctor)
+kind: ctor
+cpp: base2/cmd_sys/Cmd.h:43
+py: cmd.py:30
+what: (name, handler, excludeExeRec=false, excludeUpdate=false, category="common")
+status: ok
+
+type: check
+id: 32
+scope: Cmd::execute
+kind: method
+cpp: base2/cmd_sys/Cmd.h:51
+py: cmd.py:44
+what: invoke handler(args, data, context)
+status: ok
+
+type: check
+id: 33
+scope: Cmd::name
+kind: method
+cpp: base2/cmd_sys/Cmd.h:55
+py: cmd.py:52
+what: getter
+status: dead
+note: no callers in cvz/
+
+type: check
+id: 34
+scope: Cmd::category
+kind: method
+cpp: base2/cmd_sys/Cmd.h:56
+py: cmd.py:55
+what: getter
+status: dead
+note: no callers in cvz/
+
+type: check
+id: 35
+scope: Cmd::excludeExeRec
+kind: method
+cpp: base2/cmd_sys/Cmd.h:57
+py: cmd.py:58
+what: getter
+status: ok
+
+type: check
+id: 36
+scope: Cmd::excludeUpdate
+kind: method
+cpp: base2/cmd_sys/Cmd.h:58
+py: cmd.py:61
+what: getter
+status:
+
+type: check
+id: 37
+scope: Cmd::name_
+kind: data
+cpp: base2/cmd_sys/Cmd.h:62
+py: cmd.py:32
+what: QString
+status:
+
+type: check
+id: 38
+scope: Cmd::handler_
+kind: data
+cpp: base2/cmd_sys/Cmd.h:63
+py: cmd.py:33
+what: CommandHandler
+status:
+
+type: check
+id: 39
+scope: Cmd::excludeExeRec_
+kind: data
+cpp: base2/cmd_sys/Cmd.h:64
+py: cmd.py:34
+what: bool
+status:
+
+type: check
+id: 40
+scope: Cmd::excludeUpdate_
+kind: data
+cpp: base2/cmd_sys/Cmd.h:65
+py: cmd.py:35
+what: bool
+status:
+
+type: check
+id: 41
+scope: Cmd::category_
+kind: data
+cpp: base2/cmd_sys/Cmd.h:66
+py: cmd.py:36
+what: QString
+status:
+
+type: check
+id: 42
+scope: CommandHandler (typedef)
+kind: type
+cpp: base2/cmd_sys/Cmd.h:34
+py: cmd.py:22
+what: function pointer type (int(args, data, context))
+status:
+
+# ==== CmdContext (base2/cmd_sys/CmdContext.h) ====
+
+type: check
+id: 43
+scope: CmdContext (class)
+kind: class
+cpp: base2/cmd_sys/CmdContext.h:31
+py: cmd_context.py:25
+what: singleton concrete impl of CmdContextIface
+status:
+
+type: check
+id: 44
+scope: CmdContext::inst
+kind: method
+cpp: base2/cmd_sys/CmdContext.h:36
+py: cmd_context.py:29
+what: singleton accessor (QSharedPointer static)
+status:
+
+type: check
+id: 45
+scope: CmdContext::reply
+kind: method
+cpp: base2/cmd_sys/CmdContext.h:39
+py: cmd_context.py:34
+what: no-op override
+status:
+
+type: check
+id: 46
+scope: CMD_CONTEXT (macro)
+kind: macro
+cpp: base2/cmd_sys/CmdContext.h:28
+py: cmd_context.py:38
+what: #define CMD_CONTEXT CmdContext::inst() (Python: function CMD_CONTEXT())
+status:
+
+# ==== CmdContextDataIface (base2/cmd_sys/CmdContextDataIface.h) ====
+
+type: check
+id: 47
+scope: CmdContextDataIface (class)
+kind: class
+cpp: base2/cmd_sys/CmdContextDataIface.h:30
+py: cmd_context_data_iface.py:23
+what: opaque client data iface
+status:
+
+type: check
+id: 48
+scope: CmdContextDataIface::getAsClientContext
+kind: method
+cpp: base2/cmd_sys/CmdContextDataIface.h:35
+py: cmd_context_data_iface.py:24
+what: virtual default nullptr
+status:
+
+type: check
+id: 49
+scope: CmdContextDataIface::hasClientId
+kind: method
+cpp: base2/cmd_sys/CmdContextDataIface.h:36
+py: cmd_context_data_iface.py:27
+what: virtual default true
+status:
+
+type: check
+id: 50
+scope: CmdContextDataIface::uniqueId
+kind: method
+cpp: base2/cmd_sys/CmdContextDataIface.h:37
+py: cmd_context_data_iface.py:30
+what: virtual default -1
+status:
+
+# ==== CmdContextIface (base2/cmd_sys/CmdContextIface.h) ====
+
+type: check
+id: 51
+scope: CmdContextIface (class)
+kind: class
+cpp: base2/cmd_sys/CmdContextIface.h:34
+py: cmd_context_iface.py:25
+what: reply channel + client data holder
+status:
+
+type: check
+id: 52
+scope: CmdContextIface::reply
+kind: method
+cpp: base2/cmd_sys/CmdContextIface.h:40
+py: cmd_context_iface.py:29
+what: pure virtual
+status:
+
+type: check
+id: 53
+scope: CmdContextIface::reply_threadSafe
+kind: method
+cpp: base2/cmd_sys/CmdContextIface.h:41
+py: cmd_context_iface.py:32
+what: default asserts (impl in subclass)
+status:
+
+type: check
+id: 54
+scope: CmdContextIface::getAsClientContext
+kind: method
+cpp: base2/cmd_sys/CmdContextIface.h:43
+py: cmd_context_iface.py:35
+what: default nullptr
+status:
+
+type: check
+id: 55
+scope: CmdContextIface::forceDisconnect
+kind: method
+cpp: base2/cmd_sys/CmdContextIface.h:45
+py: cmd_context_iface.py:38
+what: default no-op
+status:
+
+type: check
+id: 56
+scope: CmdContextIface::logCmd
+kind: method
+cpp: base2/cmd_sys/CmdContextIface.h:47
+py: cmd_context_iface.py:41
+what: default false
+status:
+
+type: check
+id: 57
+scope: CmdContextIface::uniqueId
+kind: method
+cpp: base2/cmd_sys/CmdContextIface.h:49
+py: cmd_context_iface.py:44
+what: delegate to clientData_->uniqueId or -1
+status:
+
+type: check
+id: 58
+scope: CmdContextIface::clientData
+kind: method
+cpp: base2/cmd_sys/CmdContextIface.h:54
+py: cmd_context_iface.py:49
+what: getter (C++ asserts main thread; Python: no assert)
+status:
+
+type: check
+id: 59
+scope: CmdContextIface::clientDataSet
+kind: method
+cpp: base2/cmd_sys/CmdContextIface.h:57
+py: cmd_context_iface.py:52
+what: setter, asserts previously null (main thread in C++)
+status:
+
+type: check
+id: 60
+scope: CmdContextIface::clientData_
+kind: data
+cpp: base2/cmd_sys/CmdContextIface.h:64
+py: cmd_context_iface.py:27
+what: CmdContextDataIface* (public field)
+status:
+
+# ==== CmdExeFilter (base2/cmd_sys/CmdExeFilter.h) ====
+
+type: check
+id: 61
+scope: CmdExeFilter (class)
+kind: class
+cpp: base2/cmd_sys/CmdExeFilter.h:6
+py: cmd_exe_filter.py:25
+what: abstract predicate class
+status:
+
+type: check
+id: 62
+scope: CmdExeFilter::pass
+kind: method
+cpp: base2/cmd_sys/CmdExeFilter.h:10
+py: cmd_exe_filter.py:26
+what: pure virtual (Python: renamed pass_ - keyword clash)
+status:
+
+# ==== CmdExeGuard (base2/cmd_sys/CmdExeGuard.h) ====
+
+type: check
+id: 63
+scope: CmdExeGuard (class)
+kind: class
+cpp: base2/cmd_sys/CmdExeGuard.h:28
+py: cmd_exe_guard.py:28
+what: abstract observer of executed commands
+status:
+
+type: check
+id: 64
+scope: CmdExeGuard::Phase (enum)
+kind: enum
+cpp: base2/cmd_sys/CmdExeGuard.h:31
+py: cmd_exe_guard.py:23
+what: enum with Record=0, Update=100
+status:
+
+type: check
+id: 65
+scope: CmdExeGuard::Record
+kind: enum_val
+cpp: base2/cmd_sys/CmdExeGuard.h:32
+py: cmd_exe_guard.py:24
+what: enum value = 0 (Python: RECORD)
+status:
+
+type: check
+id: 66
+scope: CmdExeGuard::Update
+kind: enum_val
+cpp: base2/cmd_sys/CmdExeGuard.h:33
+py: cmd_exe_guard.py:25
+what: enum value = 100 (Python: UPDATE)
+status:
+
+type: check
+id: 67
+scope: CmdExeGuard::CmdExeGuard (ctor)
+kind: ctor
+cpp: base2/cmd_sys/CmdExeGuard.h:37
+py: cmd_exe_guard.py:29
+what: (phase = Record)
+status:
+
+type: check
+id: 68
+scope: CmdExeGuard::phase
+kind: method
+cpp: base2/cmd_sys/CmdExeGuard.h:40
+py: cmd_exe_guard.py:32
+what: getter
+status:
+
+type: check
+id: 69
+scope: CmdExeGuard::commandExecuted
+kind: method
+cpp: base2/cmd_sys/CmdExeGuard.h:41
+py: cmd_exe_guard.py:35
+what: pure virtual
+status:
+
+type: check
+id: 70
+scope: CmdExeGuard::phase_
+kind: data
+cpp: base2/cmd_sys/CmdExeGuard.h:44
+py: cmd_exe_guard.py:30
+what: Phase enum
+status:
+
+# ==== CmdSys (base2/cmd_sys/CmdSys.{h,cpp}) ====
+
+type: check
+id: 71
+scope: CmdSys (class)
+kind: class
+cpp: base2/cmd_sys/CmdSys.h:44
+py: cmd_sys.py:32
+what: singleton command registry + dispatch
+status:
+
+type: check
+id: 72
+scope: CmdSys::inst
+kind: method
+cpp: base2/cmd_sys/CmdSys.h:50
+py: cmd_sys.py:46
+what: singleton accessor (static local)
+status:
+
+type: check
+id: 73
+scope: CmdSys::execute
+kind: method
+cpp: base2/cmd_sys/CmdSys.h:54 impl .cpp:117
+py: cmd_sys.py:76
+what: (args, sourceName, sourceIndex, user) - parse + dispatch; always returns 0
+status:
+
+type: check
+id: 74
+scope: CmdSys::execute_threadSafe
+kind: method
+cpp: base2/cmd_sys/CmdSys.h:55 impl .cpp:109
+py: cmd_sys.py:107
+what: Qt QueuedConnection (Python: deque + RLock)
+status:
+
+type: check
+id: 75
+scope: CmdSys::add(name, handler, exRec, exUpd)
+kind: method
+cpp: base2/cmd_sys/CmdSys.h:57 impl .cpp:33
+py: cmd_sys.py:51
+what: register command
+status:
+
+type: check
+id: 76
+scope: CmdSys::add(name, handler, category, exRec, exUpd)
+kind: method
+cpp: base2/cmd_sys/CmdSys.h:58 impl .cpp:40
+py: cmd_sys.py:51
+what: same but with category (Python: unified 1 method, category kw)
+status:
+
+type: check
+id: 77
+scope: CmdSys::get
+kind: method
+cpp: base2/cmd_sys/CmdSys.h:59 impl .cpp:48
+py: cmd_sys.py:61
+what: name -> Cmd* or nullptr
+status:
+
+type: check
+id: 78
+scope: CmdSys::reg(CmdExeGuard*)
+kind: method
+cpp: base2/cmd_sys/CmdSys.h:60
+py: cmd_sys.py:64
+what: prepend if Record phase, else append (Python: reg_guard)
+status:
+
+type: check
+id: 79
+scope: CmdSys::reg(CmdExeFilter*)
+kind: method
+cpp: base2/cmd_sys/CmdSys.h:67
+py: cmd_sys.py:70
+what: append filter (Python: reg_filter)
+status:
+
+type: check
+id: 80
+scope: CmdSys::setMainThread
+kind: method
+cpp: base2/cmd_sys/CmdSys.h:68
+py: cmd_sys.py:73
+what: bool setter
+status:
+
+type: check
+id: 81
+scope: CmdSys::execute_ (internal)
+kind: method
+cpp: base2/cmd_sys/CmdSys.h:80 impl .cpp:56
+py: cmd_sys.py:117
+what: filters + lookup + execute + guards (Python: _execute)
+status:
+
+type: check
+id: 82
+scope: CmdSys::cmds_
+kind: data
+cpp: base2/cmd_sys/CmdSys.h:72
+py: cmd_sys.py:36
+what: QMap<QString, Cmd> (Python: dict)
+status:
+
+type: check
+id: 83
+scope: CmdSys::guards_
+kind: data
+cpp: base2/cmd_sys/CmdSys.h:73
+py: cmd_sys.py:37
+what: QVector<CmdExeGuard*>
+status:
+
+type: check
+id: 84
+scope: CmdSys::filters_
+kind: data
+cpp: base2/cmd_sys/CmdSys.h:74
+py: cmd_sys.py:38
+what: QVector<CmdExeFilter*>
+status:
+
+type: check
+id: 85
+scope: CmdSys::executingArgs_
+kind: data
+cpp: base2/cmd_sys/CmdSys.h:75
+py: cmd_sys.py:39
+what: CmdArgCol re-entrancy guard
+status:
+
+type: check
+id: 86
+scope: CmdSys::runningIndex_
+kind: data
+cpp: base2/cmd_sys/CmdSys.h:76
+py: cmd_sys.py:40
+what: int monotonic counter
+status:
+
+type: check
+id: 87
+scope: CmdSys::timer_
+kind: data
+cpp: base2/cmd_sys/CmdSys.h:77
+py:
+what: QElapsedTimer (NOT ported)
+status: dead
+
+type: check
+id: 88
+scope: CmdSys::mainThread_
+kind: data
+cpp: base2/cmd_sys/CmdSys.h:78
+py: cmd_sys.py:41
+what: bool
+status: cpp_specific
+note: main_thread_ field + setter portovan, ale gate assert v execute_ (Qt thread affinity check) v py chybi. Qt-specific runtime kontrola, v Pythonu (GIL + threading.main_thread()) nedava smysl v tehle podobe.
+
+type: check
+id: 89
+scope: CMD_SYS (macro)
+kind: macro
+cpp: base2/cmd_sys/CmdSys.h:39
+py: cmd_sys.py:150
+what: #define CMD_SYS CmdSys::inst() (Python: function CMD_SYS())
+status:
+
+type: check
+id: 90
+scope: CMD_ARGS (macro)
+kind: macro
+cpp: base2/cmd_sys/CmdSys.h:40
+py:
+what: handler signature shortcut (NOT needed in Python)
+status: dead
+
+type: check
+id: 91
+scope: CMD_ARGS_U (macro)
+kind: macro
+cpp: base2/cmd_sys/CmdSys.h:41
+py:
+what: same with maybe_unused attributes (NOT needed in Python)
+status: dead
+
+# ==== CmdUtils (base2/cmd_sys/CmdUtils.h) ====
+
+type: check
+id: 92
+scope: CmdUtils (class)
+kind: class
+cpp: base2/cmd_sys/CmdUtils.h:26
+py: cmd_utils.py:23
+what: static helpers class
+status:
+
+type: check
+id: 93
+scope: CmdUtils::mineCommandsFromScript
+kind: method
+cpp: base2/cmd_sys/CmdUtils.h:32
+py: cmd_utils.py:25
+what: parse script text to command list
+status:
+
+type: check
+id: 94
+scope: CmdUtils::executeCommands
+kind: method
+cpp: base2/cmd_sys/CmdUtils.h:76
+py: cmd_utils.py:64
+what: dispatch each via execute_threadSafe
+status:
+
+# ==== Cmds_cmd_sys (base2/cmd_sys/Cmds_cmd_sys.{h,cpp}) ====
+
+type: check
+id: 95
+scope: Cmds_cmd_sys (class)
+kind: class
+cpp: base2/cmd_sys/Cmds_cmd_sys.h:31
+py: cmds_cmd_sys.py:29
+what: built-in commands registration (Python: CmdsCmdSys)
+status:
+
+type: check
+id: 96
+scope: Cmds_cmd_sys::registerCmds_
+kind: method
+cpp: base2/cmd_sys/Cmds_cmd_sys.h:36
+py: cmds_cmd_sys.py:31
+what: register 8 built-ins
+status:
+
+type: check
+id: 97
+scope: Cmds_cmd_sys::voidcmd (static method)
+kind: method
+cpp: base2/cmd_sys/Cmds_cmd_sys.h:167 impl .cpp:23
+py:
+what: standalone static (Python has only closure in registerCmds_)
+status: note
+
+type: check
+id: 98
+scope: Cmds_cmd_sys::logcmd (static method)
+kind: method
+cpp: base2/cmd_sys/Cmds_cmd_sys.h:168 impl .cpp:29
+py:
+what: standalone static (Python has only closure in registerCmds_)
+status: note
+
+type: check
+id: 99
+scope: CMD:voidcmd
+kind: cmd
+cpp: base2/cmd_sys/Cmds_cmd_sys.h:38
+py: cmds_cmd_sys.py:34
+what: no-op, returns 0
+status:
+
+type: check
+id: 100
+scope: CMD:logcmd
+kind: cmd
+cpp: base2/cmd_sys/Cmds_cmd_sys.h:43
+py: cmds_cmd_sys.py:38
+what: no-op (log via guard)
+status:
+
+type: check
+id: 101
+scope: CMD:__not_implemented__
+kind: cmd
+cpp: base2/cmd_sys/Cmds_cmd_sys.h:48
+py: cmds_cmd_sys.py:42
+what: fallback for unknown; appendError; returns 1
+status:
+
+type: check
+id: 102
+scope: CMD:cmds_execute_script
+kind: cmd
+cpp: base2/cmd_sys/Cmds_cmd_sys.h:56
+py: cmds_cmd_sys.py:48
+what: read file, mine cmds, executeCommands, append INFO
+status:
+
+type: check
+id: 103
+scope: CMD:cmd_help
+kind: cmd
+cpp: base2/cmd_sys/Cmds_cmd_sys.h:85
+py: cmds_cmd_sys.py:63
+what: load help md - C++ from Qt :/cmds_help/; Python: cmds_help/ dir
+status: note
+
+type: check
+id: 104
+scope: CMD:cmds_categories
+kind: cmd
+cpp: base2/cmd_sys/Cmds_cmd_sys.h:104
+py: cmds_cmd_sys.py:86
+what: list unique categories
+status:
+
+type: check
+id: 105
+scope: CMD:cmds_list
+kind: cmd
+cpp: base2/cmd_sys/Cmds_cmd_sys.h:116
+py: cmds_cmd_sys.py:95
+what: list commands per category with --type filter
+status:
+
+type: check
+id: 106
+scope: CMD:execute_script
+kind: cmd
+cpp: base2/cmd_sys/Cmds_cmd_sys.h:132
+py: cmds_cmd_sys.py:111
+what: line-by-line dispatch; skip empty/comments
+status:
+
+# ==== StdinMonitor (base2/cmd_sys/StdinMonitor.h) ====
+
+type: check
+id: 107
+scope: StdinMonitor (class)
+kind: class
+cpp: base2/cmd_sys/StdinMonitor.h:33
+py: stdin_monitor.py:25
+what: background thread reading stdin (C++: QThread; Python: threading.Thread daemon)
+status:
+
+type: check
+id: 108
+scope: StdinMonitor::init
+kind: method
+cpp: base2/cmd_sys/StdinMonitor.h:35
+py: stdin_monitor.py:34
+what: singleton + start
+status:
+
+type: check
+id: 109
+scope: StdinMonitor::setEnabled
+kind: method
+cpp: base2/cmd_sys/StdinMonitor.h:36
+py: stdin_monitor.py:40
+what: setter
+status:
+
+type: check
+id: 110
+scope: StdinMonitor::isEnabled
+kind: method
+cpp: base2/cmd_sys/StdinMonitor.h:37
+py: stdin_monitor.py:43
+what: getter
+status:
+
+type: check
+id: 111
+scope: StdinMonitor::processLine
+kind: method
+cpp: base2/cmd_sys/StdinMonitor.h:39
+py: stdin_monitor.py:49
+what: skip qt.*, dispatch via execute_threadSafe
+status:
+
+type: check
+id: 112
+scope: StdinMonitor::run (Win)
+kind: method
+cpp: base2/cmd_sys/StdinMonitor.h:49
+py: stdin_monitor.py:57
+what: Win ReadFile loop (Python: unified sys.stdin.readline)
+status:
+
+type: check
+id: 113
+scope: StdinMonitor::run (POSIX)
+kind: method
+cpp: base2/cmd_sys/StdinMonitor.h:75
+py: stdin_monitor.py:57
+what: fgets loop (Python: unified sys.stdin.readline)
+status:
+
+type: check
+id: 114
+scope: StdinMonitor::enabled_
+kind: data
+cpp: base2/cmd_sys/StdinMonitor.h:45
+py: stdin_monitor.py:29
+what: bool
+status:
+
+# ==== StdoutCmdOutput (base2/cmd_sys/StdoutCmdOutput.{h,cpp}) ====
+
+type: check
+id: 115
+scope: StdoutCmdOutput (class)
+kind: class
+cpp: base2/cmd_sys/StdoutCmdOutput.h:27
+py: stdout_cmd_output.py:30
+what: guard - echo executed cmds to stdout
+status:
+
+type: check
+id: 116
+scope: StdoutCmdOutput::StdoutCmdOutput (ctor)
+kind: ctor
+cpp: base2/cmd_sys/StdoutCmdOutput.h:31 impl .cpp:29
+py: stdout_cmd_output.py:33
+what: register with CMD_SYS
+status:
+
+type: check
+id: 117
+scope: StdoutCmdOutput::inst
+kind: method
+cpp: base2/cmd_sys/StdoutCmdOutput.h:32
+py: stdout_cmd_output.py:40
+what: singleton
+status:
+
+type: check
+id: 118
+scope: StdoutCmdOutput::setEnabled
+kind: method
+cpp: base2/cmd_sys/StdoutCmdOutput.h:36
+py: stdout_cmd_output.py:45
+what: setter
+status:
+
+type: check
+id: 119
+scope: StdoutCmdOutput::isEnabled
+kind: method
+cpp: base2/cmd_sys/StdoutCmdOutput.h:37
+py: stdout_cmd_output.py:48
+what: getter
+status:
+
+type: check
+id: 120
+scope: StdoutCmdOutput::commandExecuted
+kind: method
+cpp: base2/cmd_sys/StdoutCmdOutput.h:39 impl .cpp:34
+py: stdout_cmd_output.py:51
+what: if enabled write args.toString + newline to stdout
+status:
+
+type: check
+id: 121
+scope: StdoutCmdOutput::enabled_
+kind: data
+cpp: base2/cmd_sys/StdoutCmdOutput.h:41
+py: stdout_cmd_output.py:34
+what: bool default false
+status:
+
+# ==== WsServerLite (base2/mccp_com/WsServerLite.h) ====
+
+type: check
+id: 122
+scope: WsServerLite (class)
+kind: class
+cpp: base2/mccp_com/WsServerLite.h:12
+py: ws_server_lite.py:32
+what: WS server (C++: QWebSocketServer + QThread; Python: websockets + asyncio daemon Thread)
+status:
+
+type: check
+id: 123
+scope: WsServerLite::WsServerLite (ctor)
+kind: ctor
+cpp: base2/mccp_com/WsServerLite.h:15
+py: ws_server_lite.py:35
+what: (port=12345)
+status:
+
+type: check
+id: 124
+scope: WsServerLite::init
+kind: method
+cpp: base2/mccp_com/WsServerLite.h:21
+py: ws_server_lite.py:44
+what: singleton + moveToThread + start
+status:
+
+type: check
+id: 125
+scope: WsServerLite::broadcast
+kind: method
+cpp: base2/mccp_com/WsServerLite.h:34
+py: ws_server_lite.py:57
+what: send text to all clients
+status:
+
+type: check
+id: 126
+scope: WsServerLite::start_ (slot)
+kind: method
+cpp: base2/mccp_com/WsServerLite.h:41
+py: ws_server_lite.py:62
+what: create server, listen (Python: _run_loop / _serve)
+status:
+
+type: check
+id: 127
+scope: WsServerLite::onNewConnection_
+kind: method
+cpp: base2/mccp_com/WsServerLite.h:48
+py: ws_server_lite.py:75
+what: accept new client (Python: async _handler)
+status:
+
+type: check
+id: 128
+scope: WsServerLite::onMessage_
+kind: method
+cpp: base2/mccp_com/WsServerLite.h:55
+py: ws_server_lite.py:75
+what: parse lines, dispatch each via execute_threadSafe
+status:
+
+type: check
+id: 129
+scope: WsServerLite::onDisconnected_
+kind: method
+cpp: base2/mccp_com/WsServerLite.h:65
+py:
+what: cleanup on disconnect (Python: async CM auto-handles)
+status: note
+
+type: check
+id: 130
+scope: WsServerLite::port_
+kind: data
+cpp: base2/mccp_com/WsServerLite.h:74
+py: ws_server_lite.py:37
+what: quint16
+status:
+
+type: check
+id: 131
+scope: WsServerLite::server_
+kind: data
+cpp: base2/mccp_com/WsServerLite.h:75
+py: ws_server_lite.py:37
+what: QWebSocketServer* (Python: websockets server object)
+status:
+
+type: check
+id: 132
+scope: WsServerLite::clients_
+kind: data
+cpp: base2/mccp_com/WsServerLite.h:76
+py: ws_server_lite.py:37
+what: QList<QWebSocket*> (Python: Set)
+status:
+
+# ==== WsServerLiteGuard (base2/mccp_com/WsServerLiteGuard.h) ====
+
+type: check
+id: 133
+scope: WsServerLiteGuard (class)
+kind: class
+cpp: base2/mccp_com/WsServerLiteGuard.h:8
+py: ws_server_lite_guard.py:27
+what: guard broadcasting each cmd
+status:
+
+type: check
+id: 134
+scope: WsServerLiteGuard::WsServerLiteGuard (ctor)
+kind: ctor
+cpp: base2/mccp_com/WsServerLiteGuard.h:10
+py: ws_server_lite_guard.py:30
+what: (server*) - CmdExeGuard(Update) + register with CMD_SYS
+status:
+
+type: check
+id: 135
+scope: WsServerLiteGuard::inst
+kind: method
+cpp: base2/mccp_com/WsServerLiteGuard.h:17
+py: ws_server_lite_guard.py:36
+what: singleton bound to WsServerLite::init()
+status:
+
+type: check
+id: 136
+scope: WsServerLiteGuard::commandExecuted
+kind: method
+cpp: base2/mccp_com/WsServerLiteGuard.h:22
+py: ws_server_lite_guard.py:41
+what: broadcast args.toString (C++: QMetaObject queued; Python: run_coroutine_threadsafe)
+status:
+
+type: check
+id: 137
+scope: WsServerLiteGuard::server_
+kind: data
+cpp: base2/mccp_com/WsServerLiteGuard.h:30
+py: ws_server_lite_guard.py:31
+what: WsServerLite* ref
+status:
+
+# ==== CmdBridge (base2/mccp_com/CmdBridge.{h,cpp}) ====
+
+type: check
+id: 138
+scope: CmdBridge (class)
+kind: class
+cpp: base2/mccp_com/CmdBridge.h:10
+py: cmd_bridge.py:30
+what: unified init facade
+status:
+
+type: check
+id: 139
+scope: CmdBridge::init (native)
+kind: method
+cpp: base2/mccp_com/CmdBridge.h:12 impl .cpp:113
+py: cmd_bridge.py:32
+what: start WsServerLiteGuard::inst()
+status:
+
+type: check
+id: 140
+scope: CmdBridge::init (WASM branch)
+kind: method
+cpp: base2/mccp_com/CmdBridge.cpp:103
+py:
+what: WASM: EM_JS + DOM REPL + craseExec (NOT ported - Python has no WASM)
+status: dead
+
+type: check
+id: 141
+scope: WasmCmdGuard (class, WASM only)
+kind: class
+cpp: base2/mccp_com/CmdBridge.cpp:94
+py:
+what: WASM guard - write args to window.craseLog (NOT ported)
+status: dead
+
+type: check
+id: 142
+scope: crase_log_push_ / crase_install_run_helper_ / crase_repl_install_ (EM_JS)
+kind: fn
+cpp: base2/mccp_com/CmdBridge.cpp:14
+py:
+what: WASM JS helpers (NOT ported)
+status: dead
+
+type: check
+id: 143
+scope: craseExec (EM_JS export)
+kind: fn
+cpp: base2/mccp_com/CmdBridge.cpp:88
+py:
+what: WASM JS -> C++ entry point (NOT ported)
+status: dead
+
+# ==== LogGuard (base2/cmd_sys_display/LogGuard.{h,cpp}) ====
+
+type: check
+id: 144
+scope: LogGuard (class)
+kind: class
+cpp: base2/cmd_sys_display/LogGuard.h:29
+py: log_guard.py:28
+what: guard writing timestamp + args to cmdlog.txt
+status:
+
+type: check
+id: 145
+scope: LogGuard::LogGuard (ctor)
+kind: ctor
+cpp: base2/cmd_sys_display/LogGuard.h:33 impl .cpp:28
+py: log_guard.py:29
+what: (path="config/cmdlog.txt") - mkpath, open append, register guard
+status:
+
+type: check
+id: 146
+scope: LogGuard::~LogGuard
+kind: dtor
+cpp: base2/cmd_sys_display/LogGuard.h:34 impl .cpp:39
+py: log_guard.py:40
+what: close file (Python: __del__)
+status:
+
+type: check
+id: 147
+scope: LogGuard::commandExecuted
+kind: method
+cpp: base2/cmd_sys_display/LogGuard.h:36 impl .cpp:45
+py: log_guard.py:47
+what: write "HH:MM:SS <args>\n" + flush
+status:
+
+type: check
+id: 148
+scope: LogGuard::file_
+kind: data
+cpp: base2/cmd_sys_display/LogGuard.h:40
+py: log_guard.py:36
+what: QFile (Python: TextIO)
+status:
+
+# ==== AppUtility (base2/app_common/AppUtility.h) - helper used by LogGuard/WindowPersist ====
+
+type: check
+id: 149
+scope: AppUtility::replaceOrAppendInConfig
+kind: method
+cpp: base2/app_common/AppUtility.h:28
+py: window_persist.py:38 (v koumes/KOUMES)
+what: read config.t2l, find line by cmd name, replace or append
+status: note
+
+type: check
+id: 150
+scope: AppUtility::replaceOrAppendInScript
+kind: method
+cpp: base2/app_common/AppUtility.h:15
+py:
+what: list-based helper (in-memory list variant)
+status: dead

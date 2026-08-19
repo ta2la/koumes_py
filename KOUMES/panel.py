@@ -57,9 +57,38 @@ _TAB_TOGGLE_QSS = (
     " min-width: 60px; min-height: 34px;"
 )
 
+def _load_settings() -> dict:
+    """Read config/settings.t2l from AppPaths.dir_config() if exists.
+    Returns flat dict of first-value attributes (last-wins on dupes).
+    Safe: returns {} on any error."""
+    try:
+        import os
+        from .app_paths import AppPaths
+        p = os.path.join(AppPaths.inst().dir_config(), "settings.t2l")
+        if not os.path.isfile(p):
+            return {}
+        d = {}
+        with open(p, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                i = line.find(":")
+                if i < 0:
+                    continue
+                d[line[:i].strip()] = line[i + 1:].strip()
+        return d
+    except Exception:
+        return {}
+
+
+_SETTINGS = _load_settings()
+_INFO_BG = _SETTINGS.get("info_bg", "#1f2937")
+_INFO_BORDER = _SETTINGS.get("info_border", "#111827")
+
 _INFO_BAR_QSS = (
-    "QWidget { background: #1f2937; border-bottom: 1px solid #111827; }"
-    "QLabel  { background: transparent; border: none;"
+    f"QWidget {{ background: {_INFO_BG}; border-bottom: 1px solid {_INFO_BORDER}; }}"
+    "QLabel  { background: transparent; border: none; color: #d1d5db;"
     "          font: 15px 'ui-monospace', monospace; }"
     "QLabel[clickable=\"true\"]:hover { color: #fbbf24; }"
 )

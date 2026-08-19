@@ -33,6 +33,7 @@ class PanelBus(QObject):
     fileSelectedForBrowse = pyqtSignal(str, int)
     sandboxChanged = pyqtSignal(str)
     lineChanged = pyqtSignal(int)
+    lineChangedRightmost = pyqtSignal(int)
     wwwUrlRequested = pyqtSignal(QUrl, str)
     selectionChanged = pyqtSignal(str, str, int)
     panelShow = pyqtSignal(str, str, str)
@@ -64,6 +65,10 @@ class PanelBus(QObject):
     def notifyLineChanged(self, line: int) -> None:
         self.lineChanged.emit(line)
 
+    @pyqtSlot(int)
+    def notifyLineChangedRightmost(self, line: int) -> None:
+        self.lineChangedRightmost.emit(line)
+
     @pyqtSlot(QUrl, str)
     def notifyWwwUrlRequested(self, url: QUrl, source: str) -> None:
         self.wwwUrlRequested.emit(url, source)
@@ -93,6 +98,9 @@ class PanelBus(QObject):
 
     def notify_line_changed(self, line: int) -> None:
         self.notifyLineChanged(line)
+
+    def notify_line_changed_rightmost(self, line: int) -> None:
+        self.notifyLineChangedRightmost(line)
 
     def notify_www_url_requested(self, url: QUrl, source: str) -> None:
         self.notifyWwwUrlRequested(url, source)

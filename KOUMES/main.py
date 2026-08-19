@@ -43,11 +43,33 @@ def parse_args(argv: list) -> argparse.Namespace:
                    help="initial directory to open (default: root)")
     p.add_argument("--headless", action="store_true",
                    help="run without GUI (stdin + WS only)")
-    p.add_argument("--port", type=int, default=DEFAULT_WS_PORT,
-                   help=f"WebSocket port for external commands (default: {DEFAULT_WS_PORT})")
+    p.add_argument("--port", type=int, default=None,
+                   help=f"WebSocket port (default: settings.t2l ws_port, else {DEFAULT_WS_PORT})")
     p.add_argument("--dirview", default=DEFAULT_DIRVIEW,
                    help=f"Fallback dir for viewer HTMLs (default: {DEFAULT_DIRVIEW})")
     return p.parse_args(argv)
+
+
+def _load_port_from_settings() -> int:
+    """Read ws_port from <dir_config>/settings.t2l. Returns 0 if missing/invalid."""
+    try:
+        p = os.path.join(AppPaths.inst().dir_config(), "settings.t2l")
+        if not os.path.isfile(p):
+            return 0
+        with open(p, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or ":" not in line:
+                    continue
+                k, _, v = line.partition(":")
+                if k.strip() == "ws_port":
+                    try:
+                        return int(v.strip())
+                    except ValueError:
+                        return 0
+    except Exception:
+        pass
+    return 0
 
 
 def bootstrap(args: argparse.Namespace) -> None:
@@ -59,7 +81,9 @@ def bootstrap(args: argparse.Namespace) -> None:
     log_path = os.path.join(AppPaths.inst().dir_config(), "cmdlog.txt")
     LogGuard(log_path)
 
-    WsServerLite.init(port=args.port)
+    port = args.port or _load_port_from_settings() or DEFAULT_WS_PORT
+    args.port = port
+    WsServerLite.init(port=port)
     CmdBridge.init()
 
     stdin = StdinMonitor.init()
