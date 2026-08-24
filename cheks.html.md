@@ -20,7 +20,7 @@ status: <empty> | ok | issue | dead
 note: <optional; popis divergence u issue, nebo důvod dead>
 ```
 
-## 5 stavů
+## 6 stavů
 
 | status | ikona | význam |
 |--------|-------|--------|
@@ -29,6 +29,7 @@ note: <optional; popis divergence u issue, nebo důvod dead>
 | `issue` | ✗ | py chová jinak / diverguje - viz `note:` |
 | `dead` | ✓† | C++ item je dead code / not-needed (žádný caller v cvz/, nebo WASM-only, macro, legacy) - intentionally not ported |
 | `cpp_specific` | ∅ | C++ item vyžaduje Qt/C++ runtime mechanismus co v Pythonu nedává smysl nebo je pokryto jiným paradigmatem (např. Qt thread affinity assert, Q_ASSERT, Q_PROPERTY, QMetaObject queued invoke) |
+| `new_py_feature` | ✨ | Python-side **záměrné rozšíření** nad C++ - buď feature, kterou C++ nemá, nebo Python-only fix Qt-specific problému. Není to divergence k opravě; opravit ji směrem k C++ by znamenalo vrátit zpátky vědomé rozhodnutí. Vždy s `note:` co a proč. |
 
 `note:` field = tooltip na status box (červená tečkovaná linka pod ikonou).
 
@@ -93,6 +94,7 @@ Přečti C++ zdroj + Python zdroj (paths z `cpp:` a `py:` field).
 **Výsledek:**
 - Ekvivalent → `status: ok`
 - Divergence → `status: issue` + `note: "<popis>"`
+- Divergence, která je **záměrná** (py přidal feature, nebo obešel Qt-specific problém po svém) → `status: new_py_feature` + `note: "<co a proč>"`. Rozlišovací otázka: *opravit to směrem k C++ by appku zlepšilo, nebo vrátilo zpátky vědomé rozhodnutí?* Když to druhé, není to issue.
 
 ## Batch workflow (per user request "dalsich N")
 
@@ -125,7 +127,7 @@ Pokud se rozšíří kritérium (např. přidán dead check tam, kde dřív neby
 
 ### Header stats
 
-`Checks: N  ✓ N  ✗ N  ✓† N  ☐ N`
+`Checks: N  ✓ N  ✗ N  ✓† N  ∅ N  ✨ N  ☐ N`
 
 ## Related files
 

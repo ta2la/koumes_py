@@ -17,8 +17,11 @@
 Python port of APPS/AI_T2LS/FsBridge.{h,cpp}.
 """
 
+import base64
+import binascii
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import List, Optional
@@ -389,3 +392,49 @@ class FsBridge(QObject):
     @pyqtSlot(str)
     def exec(self, cmdline: str) -> None:
         CMD_SYS().execute_thread_safe(cmdline, "js", -1, "HTML")
+
+    @pyqtSlot(str, str, result=str)
+    def saveInPlace(self, src_path: str, data_url: str) -> str:
+        """Overwrite `src_path` with a composite PNG (image + markup).
+
+        First save takes a one-time backup at `src_path + '.orig'` - after that
+        the picture on disk carries the shapes baked in. The backup is what the
+        viewer loads next time (see `origOf`), so the shapes from the sidecar
+        do not stack on top of their own baked-in copies.
+
+        Base64 goes through its own slot rather than `write()` (that one is
+        text-only) and rather than a command (a megabyte of base64 in the
+        command log helps nobody). Returns the path, or "" on failure.
+        """
+        marker = ";base64,"
+        i = data_url.find(marker)
+        if i < 0:
+            return ""
+        try:
+            blob = base64.b64decode(data_url[i + len(marker):])
+        except (ValueError, binascii.Error):
+            return ""
+
+        backup = src_path + ".orig"
+        try:
+            if not os.path.exists(backup):
+                shutil.copy2(src_path, backup)
+            with open(src_path, "wb") as f:
+                f.write(blob)
+        except OSError:
+            return ""
+
+        CMD_SYS().execute_thread_safe(f'export_saved "{src_path}"', "js", -1, "HTML")
+        return src_path
+
+    @pyqtSlot(str, result=str)
+    def origOf(self, src_path: str) -> str:
+        """Return the untouched source, when a `.orig` backup exists.
+
+        The redline viewer draws over a background. Once a save has overwritten
+        the picture with a composite, drawing over `src_path` again would stack
+        the shapes on top of their baked-in copies. Loading the backup instead
+        keeps the composition idempotent.
+        """
+        backup = src_path + ".orig"
+        return backup if os.path.exists(backup) else src_path

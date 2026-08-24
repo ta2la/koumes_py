@@ -2,7 +2,7 @@
 # scope: C++ item (Class::member, Namespace::fn, CMD:name, MACRO)
 # cpp: relative path from cvz root + line
 # py: filename:line in Python port (empty if missing)
-# status: empty=unchecked, ok=verified match, issue=diff (viz note), dead=C++ dead code / not-needed, cpp_specific=Qt/C++ runtime mechanismus v py bezpředmětný
+# status: empty=unchecked, ok=verified match, issue=diff (viz note), dead=C++ dead code / not-needed, cpp_specific=Qt/C++ runtime mechanismus v py bezpředmětný, new_py_feature=Python-side záměrné rozšíření nad C++ (feature co C++ nemá, nebo Python-only fix Qt-specific problému)
 
 type: viewer
 name: checks
@@ -340,7 +340,7 @@ kind: method
 cpp: base2/cmd_sys/Cmd.h:58
 py: cmd.py:61
 what: getter
-status:
+status: ok
 
 type: check
 id: 37
@@ -349,7 +349,7 @@ kind: data
 cpp: base2/cmd_sys/Cmd.h:62
 py: cmd.py:32
 what: QString
-status:
+status: ok
 
 type: check
 id: 38
@@ -358,7 +358,7 @@ kind: data
 cpp: base2/cmd_sys/Cmd.h:63
 py: cmd.py:33
 what: CommandHandler
-status:
+status: ok
 
 type: check
 id: 39
@@ -367,7 +367,7 @@ kind: data
 cpp: base2/cmd_sys/Cmd.h:64
 py: cmd.py:34
 what: bool
-status:
+status: ok
 
 type: check
 id: 40
@@ -376,7 +376,7 @@ kind: data
 cpp: base2/cmd_sys/Cmd.h:65
 py: cmd.py:35
 what: bool
-status:
+status: ok
 
 type: check
 id: 41
@@ -385,7 +385,7 @@ kind: data
 cpp: base2/cmd_sys/Cmd.h:66
 py: cmd.py:36
 what: QString
-status:
+status: ok
 
 type: check
 id: 42
@@ -394,7 +394,7 @@ kind: type
 cpp: base2/cmd_sys/Cmd.h:34
 py: cmd.py:22
 what: function pointer type (int(args, data, context))
-status:
+status: ok
 
 # ==== CmdContext (base2/cmd_sys/CmdContext.h) ====
 
@@ -405,7 +405,7 @@ kind: class
 cpp: base2/cmd_sys/CmdContext.h:31
 py: cmd_context.py:25
 what: singleton concrete impl of CmdContextIface
-status:
+status: ok
 
 type: check
 id: 44
@@ -414,7 +414,7 @@ kind: method
 cpp: base2/cmd_sys/CmdContext.h:36
 py: cmd_context.py:29
 what: singleton accessor (QSharedPointer static)
-status:
+status: ok
 
 type: check
 id: 45
@@ -423,7 +423,7 @@ kind: method
 cpp: base2/cmd_sys/CmdContext.h:39
 py: cmd_context.py:34
 what: no-op override
-status:
+status: ok
 
 type: check
 id: 46
@@ -432,7 +432,7 @@ kind: macro
 cpp: base2/cmd_sys/CmdContext.h:28
 py: cmd_context.py:38
 what: #define CMD_CONTEXT CmdContext::inst() (Python: function CMD_CONTEXT())
-status:
+status: ok
 
 # ==== CmdContextDataIface (base2/cmd_sys/CmdContextDataIface.h) ====
 
@@ -443,7 +443,7 @@ kind: class
 cpp: base2/cmd_sys/CmdContextDataIface.h:30
 py: cmd_context_data_iface.py:23
 what: opaque client data iface
-status:
+status: ok
 
 type: check
 id: 48
@@ -452,7 +452,8 @@ kind: method
 cpp: base2/cmd_sys/CmdContextDataIface.h:35
 py: cmd_context_data_iface.py:24
 what: virtual default nullptr
-status:
+status: dead
+note: 0 callers v base2 linii; jedine uziti v evo/ = universe linie
 
 type: check
 id: 49
@@ -461,7 +462,8 @@ kind: method
 cpp: base2/cmd_sys/CmdContextDataIface.h:36
 py: cmd_context_data_iface.py:27
 what: virtual default true
-status:
+status: dead
+note: 0 callers, jen definice CmdContextDataIface.h:36
 
 type: check
 id: 50
@@ -470,7 +472,8 @@ kind: method
 cpp: base2/cmd_sys/CmdContextDataIface.h:37
 py: cmd_context_data_iface.py:30
 what: virtual default -1
-status:
+status: ok
+note: internal use only - volane z CmdContextIface::uniqueId:51
 
 # ==== CmdContextIface (base2/cmd_sys/CmdContextIface.h) ====
 
@@ -481,7 +484,7 @@ kind: class
 cpp: base2/cmd_sys/CmdContextIface.h:34
 py: cmd_context_iface.py:25
 what: reply channel + client data holder
-status:
+status: ok
 
 type: check
 id: 52
@@ -490,7 +493,7 @@ kind: method
 cpp: base2/cmd_sys/CmdContextIface.h:40
 py: cmd_context_iface.py:29
 what: pure virtual
-status:
+status: ok
 
 type: check
 id: 53
@@ -499,7 +502,8 @@ kind: method
 cpp: base2/cmd_sys/CmdContextIface.h:41
 py: cmd_context_iface.py:32
 what: default asserts (impl in subclass)
-status:
+status: dead
+note: jediny caller evo/pulse_server_processing/newdeal/Job_dataBlocks.cpp:108 = universe linie
 
 type: check
 id: 54
@@ -508,7 +512,8 @@ kind: method
 cpp: base2/cmd_sys/CmdContextIface.h:43
 py: cmd_context_iface.py:35
 what: default nullptr
-status:
+status: dead
+note: jen evo/ (universe linie)
 
 type: check
 id: 55
@@ -517,7 +522,8 @@ kind: method
 cpp: base2/cmd_sys/CmdContextIface.h:45
 py: cmd_context_iface.py:38
 what: default no-op
-status:
+status: dead
+note: 0 callers
 
 type: check
 id: 56
@@ -526,7 +532,8 @@ kind: method
 cpp: base2/cmd_sys/CmdContextIface.h:47
 py: cmd_context_iface.py:41
 what: default false
-status:
+status: dead
+note: 0 callers
 
 type: check
 id: 57
@@ -535,7 +542,8 @@ kind: method
 cpp: base2/cmd_sys/CmdContextIface.h:49
 py: cmd_context_iface.py:44
 what: delegate to clientData_->uniqueId or -1
-status:
+status: dead
+note: jedina reference CmdSys.cpp:91 uvnitr zakomentovaneho bloku
 
 type: check
 id: 58
@@ -544,7 +552,8 @@ kind: method
 cpp: base2/cmd_sys/CmdContextIface.h:54
 py: cmd_context_iface.py:49
 what: getter (C++ asserts main thread; Python: no assert)
-status:
+status: dead
+note: 0 callers getteru; pole clientData_ se cte primo (CmdContextIface.h:50-51)
 
 type: check
 id: 59
@@ -553,7 +562,8 @@ kind: method
 cpp: base2/cmd_sys/CmdContextIface.h:57
 py: cmd_context_iface.py:52
 what: setter, asserts previously null (main thread in C++)
-status:
+status: dead
+note: jediny caller evo/pulse_server/Cmds_pulse_server.cpp:16 = universe linie
 
 type: check
 id: 60
@@ -562,7 +572,7 @@ kind: data
 cpp: base2/cmd_sys/CmdContextIface.h:64
 py: cmd_context_iface.py:27
 what: CmdContextDataIface* (public field)
-status:
+status: ok
 
 # ==== CmdExeFilter (base2/cmd_sys/CmdExeFilter.h) ====
 
@@ -573,7 +583,7 @@ kind: class
 cpp: base2/cmd_sys/CmdExeFilter.h:6
 py: cmd_exe_filter.py:25
 what: abstract predicate class
-status:
+status: ok
 
 type: check
 id: 62
@@ -582,7 +592,7 @@ kind: method
 cpp: base2/cmd_sys/CmdExeFilter.h:10
 py: cmd_exe_filter.py:26
 what: pure virtual (Python: renamed pass_ - keyword clash)
-status:
+status: ok
 
 # ==== CmdExeGuard (base2/cmd_sys/CmdExeGuard.h) ====
 
@@ -593,7 +603,7 @@ kind: class
 cpp: base2/cmd_sys/CmdExeGuard.h:28
 py: cmd_exe_guard.py:28
 what: abstract observer of executed commands
-status:
+status: ok
 
 type: check
 id: 64
@@ -602,7 +612,7 @@ kind: enum
 cpp: base2/cmd_sys/CmdExeGuard.h:31
 py: cmd_exe_guard.py:23
 what: enum with Record=0, Update=100
-status:
+status: ok
 
 type: check
 id: 65
@@ -611,7 +621,7 @@ kind: enum_val
 cpp: base2/cmd_sys/CmdExeGuard.h:32
 py: cmd_exe_guard.py:24
 what: enum value = 0 (Python: RECORD)
-status:
+status: ok
 
 type: check
 id: 66
@@ -620,7 +630,7 @@ kind: enum_val
 cpp: base2/cmd_sys/CmdExeGuard.h:33
 py: cmd_exe_guard.py:25
 what: enum value = 100 (Python: UPDATE)
-status:
+status: ok
 
 type: check
 id: 67
@@ -629,7 +639,7 @@ kind: ctor
 cpp: base2/cmd_sys/CmdExeGuard.h:37
 py: cmd_exe_guard.py:29
 what: (phase = Record)
-status:
+status: ok
 
 type: check
 id: 68
@@ -638,7 +648,7 @@ kind: method
 cpp: base2/cmd_sys/CmdExeGuard.h:40
 py: cmd_exe_guard.py:32
 what: getter
-status:
+status: ok
 
 type: check
 id: 69
@@ -647,7 +657,7 @@ kind: method
 cpp: base2/cmd_sys/CmdExeGuard.h:41
 py: cmd_exe_guard.py:35
 what: pure virtual
-status:
+status: ok
 
 type: check
 id: 70
@@ -656,7 +666,7 @@ kind: data
 cpp: base2/cmd_sys/CmdExeGuard.h:44
 py: cmd_exe_guard.py:30
 what: Phase enum
-status:
+status: ok
 
 # ==== CmdSys (base2/cmd_sys/CmdSys.{h,cpp}) ====
 
@@ -667,7 +677,7 @@ kind: class
 cpp: base2/cmd_sys/CmdSys.h:44
 py: cmd_sys.py:32
 what: singleton command registry + dispatch
-status:
+status: ok
 
 type: check
 id: 72
@@ -676,7 +686,7 @@ kind: method
 cpp: base2/cmd_sys/CmdSys.h:50
 py: cmd_sys.py:46
 what: singleton accessor (static local)
-status:
+status: ok
 
 type: check
 id: 73
@@ -685,7 +695,7 @@ kind: method
 cpp: base2/cmd_sys/CmdSys.h:54 impl .cpp:117
 py: cmd_sys.py:76
 what: (args, sourceName, sourceIndex, user) - parse + dispatch; always returns 0
-status:
+status: ok
 
 type: check
 id: 74
@@ -694,7 +704,7 @@ kind: method
 cpp: base2/cmd_sys/CmdSys.h:55 impl .cpp:109
 py: cmd_sys.py:107
 what: Qt QueuedConnection (Python: deque + RLock)
-status:
+status: ok
 
 type: check
 id: 75
@@ -703,7 +713,7 @@ kind: method
 cpp: base2/cmd_sys/CmdSys.h:57 impl .cpp:33
 py: cmd_sys.py:51
 what: register command
-status:
+status: ok
 
 type: check
 id: 76
@@ -712,7 +722,7 @@ kind: method
 cpp: base2/cmd_sys/CmdSys.h:58 impl .cpp:40
 py: cmd_sys.py:51
 what: same but with category (Python: unified 1 method, category kw)
-status:
+status: ok
 
 type: check
 id: 77
@@ -721,7 +731,7 @@ kind: method
 cpp: base2/cmd_sys/CmdSys.h:59 impl .cpp:48
 py: cmd_sys.py:61
 what: name -> Cmd* or nullptr
-status:
+status: ok
 
 type: check
 id: 78
@@ -730,7 +740,7 @@ kind: method
 cpp: base2/cmd_sys/CmdSys.h:60
 py: cmd_sys.py:64
 what: prepend if Record phase, else append (Python: reg_guard)
-status:
+status: ok
 
 type: check
 id: 79
@@ -739,7 +749,7 @@ kind: method
 cpp: base2/cmd_sys/CmdSys.h:67
 py: cmd_sys.py:70
 what: append filter (Python: reg_filter)
-status:
+status: ok
 
 type: check
 id: 80
@@ -748,7 +758,8 @@ kind: method
 cpp: base2/cmd_sys/CmdSys.h:68
 py: cmd_sys.py:73
 what: bool setter
-status:
+status: dead
+note: 0 callers v base2 linii (jen definice CmdSys.h:68)
 
 type: check
 id: 81
@@ -757,7 +768,7 @@ kind: method
 cpp: base2/cmd_sys/CmdSys.h:80 impl .cpp:56
 py: cmd_sys.py:117
 what: filters + lookup + execute + guards (Python: _execute)
-status:
+status: ok
 
 type: check
 id: 82
@@ -766,7 +777,7 @@ kind: data
 cpp: base2/cmd_sys/CmdSys.h:72
 py: cmd_sys.py:36
 what: QMap<QString, Cmd> (Python: dict)
-status:
+status: ok
 
 type: check
 id: 83
@@ -775,7 +786,7 @@ kind: data
 cpp: base2/cmd_sys/CmdSys.h:73
 py: cmd_sys.py:37
 what: QVector<CmdExeGuard*>
-status:
+status: ok
 
 type: check
 id: 84
@@ -784,7 +795,7 @@ kind: data
 cpp: base2/cmd_sys/CmdSys.h:74
 py: cmd_sys.py:38
 what: QVector<CmdExeFilter*>
-status:
+status: ok
 
 type: check
 id: 85
@@ -793,7 +804,7 @@ kind: data
 cpp: base2/cmd_sys/CmdSys.h:75
 py: cmd_sys.py:39
 what: CmdArgCol re-entrancy guard
-status:
+status: ok
 
 type: check
 id: 86
@@ -802,7 +813,7 @@ kind: data
 cpp: base2/cmd_sys/CmdSys.h:76
 py: cmd_sys.py:40
 what: int monotonic counter
-status:
+status: ok
 
 type: check
 id: 87
@@ -821,7 +832,7 @@ cpp: base2/cmd_sys/CmdSys.h:78
 py: cmd_sys.py:41
 what: bool
 status: cpp_specific
-note: main_thread_ field + setter portovan, ale gate assert v execute_ (Qt thread affinity check) v py chybi. Qt-specific runtime kontrola, v Pythonu (GIL + threading.main_thread()) nedava smysl v tehle podobe.
+note: C++ mainThread_ gatuje v execute_ (CmdSys.cpp:58-59) jediny statement: assert(QThread::currentThread()==QCoreApplication::instance()->thread()) - debug-only invariant, pod NDEBUG se vypari; jinde se pole necte. Py ma pole main_thread_ (cmd_sys.py:41) i setter set_main_thread (73-74), ale nikdo je necte. Legit: Python nema Qt thread affinity a thread-model kontrakt drzi _deferred deque + RLock - execute_thread_safe zaradi cross-thread command (WS/stdin) do fronty a main thread ji drenuje (QTimer 50ms v MainWindow), takze dispatch bezi na main threadu z konstrukce, ne z assertu. setMainThread/set_main_thread nema v cvz ani v portu jedineho callera, hodnota zustava na defaultu true v obou. Chybi tedy jen debug assert, ne chovani.
 
 type: check
 id: 89
@@ -830,7 +841,7 @@ kind: macro
 cpp: base2/cmd_sys/CmdSys.h:39
 py: cmd_sys.py:150
 what: #define CMD_SYS CmdSys::inst() (Python: function CMD_SYS())
-status:
+status: ok
 
 type: check
 id: 90
@@ -859,7 +870,7 @@ kind: class
 cpp: base2/cmd_sys/CmdUtils.h:26
 py: cmd_utils.py:23
 what: static helpers class
-status:
+status: ok
 
 type: check
 id: 93
@@ -868,7 +879,7 @@ kind: method
 cpp: base2/cmd_sys/CmdUtils.h:32
 py: cmd_utils.py:25
 what: parse script text to command list
-status:
+status: ok
 
 type: check
 id: 94
@@ -877,7 +888,7 @@ kind: method
 cpp: base2/cmd_sys/CmdUtils.h:76
 py: cmd_utils.py:64
 what: dispatch each via execute_threadSafe
-status:
+status: ok
 
 # ==== Cmds_cmd_sys (base2/cmd_sys/Cmds_cmd_sys.{h,cpp}) ====
 
@@ -888,7 +899,7 @@ kind: class
 cpp: base2/cmd_sys/Cmds_cmd_sys.h:31
 py: cmds_cmd_sys.py:29
 what: built-in commands registration (Python: CmdsCmdSys)
-status:
+status: ok
 
 type: check
 id: 96
@@ -897,7 +908,7 @@ kind: method
 cpp: base2/cmd_sys/Cmds_cmd_sys.h:36
 py: cmds_cmd_sys.py:31
 what: register 8 built-ins
-status:
+status: ok
 
 type: check
 id: 97
@@ -906,7 +917,8 @@ kind: method
 cpp: base2/cmd_sys/Cmds_cmd_sys.h:167 impl .cpp:23
 py:
 what: standalone static (Python has only closure in registerCmds_)
-status: note
+status: ok
+note: closure v register_cmds_ je zamerne vylepseni nad C++ standalone static - kompaktnejsi, zadny namespace pollution
 
 type: check
 id: 98
@@ -915,7 +927,8 @@ kind: method
 cpp: base2/cmd_sys/Cmds_cmd_sys.h:168 impl .cpp:29
 py:
 what: standalone static (Python has only closure in registerCmds_)
-status: note
+status: ok
+note: closure v register_cmds_ je zamerne vylepseni nad C++ standalone static - kompaktnejsi, zadny namespace pollution
 
 type: check
 id: 99
@@ -924,7 +937,7 @@ kind: cmd
 cpp: base2/cmd_sys/Cmds_cmd_sys.h:38
 py: cmds_cmd_sys.py:34
 what: no-op, returns 0
-status:
+status: ok
 
 type: check
 id: 100
@@ -933,7 +946,7 @@ kind: cmd
 cpp: base2/cmd_sys/Cmds_cmd_sys.h:43
 py: cmds_cmd_sys.py:38
 what: no-op (log via guard)
-status:
+status: ok
 
 type: check
 id: 101
@@ -942,7 +955,7 @@ kind: cmd
 cpp: base2/cmd_sys/Cmds_cmd_sys.h:48
 py: cmds_cmd_sys.py:42
 what: fallback for unknown; appendError; returns 1
-status:
+status: ok
 
 type: check
 id: 102
@@ -951,7 +964,7 @@ kind: cmd
 cpp: base2/cmd_sys/Cmds_cmd_sys.h:56
 py: cmds_cmd_sys.py:48
 what: read file, mine cmds, executeCommands, append INFO
-status:
+status: ok
 
 type: check
 id: 103
@@ -960,7 +973,8 @@ kind: cmd
 cpp: base2/cmd_sys/Cmds_cmd_sys.h:85
 py: cmds_cmd_sys.py:63
 what: load help md - C++ from Qt :/cmds_help/; Python: cmds_help/ dir
-status: note
+status: ok
+note: md soubory zkopirovany do KOUMES_PY/cmd_sys/cmds_help/; py prebira prapor - advance
 
 type: check
 id: 104
@@ -969,7 +983,7 @@ kind: cmd
 cpp: base2/cmd_sys/Cmds_cmd_sys.h:104
 py: cmds_cmd_sys.py:86
 what: list unique categories
-status:
+status: ok
 
 type: check
 id: 105
@@ -978,7 +992,7 @@ kind: cmd
 cpp: base2/cmd_sys/Cmds_cmd_sys.h:116
 py: cmds_cmd_sys.py:95
 what: list commands per category with --type filter
-status:
+status: ok
 
 type: check
 id: 106
@@ -987,7 +1001,7 @@ kind: cmd
 cpp: base2/cmd_sys/Cmds_cmd_sys.h:132
 py: cmds_cmd_sys.py:111
 what: line-by-line dispatch; skip empty/comments
-status:
+status: ok
 
 # ==== StdinMonitor (base2/cmd_sys/StdinMonitor.h) ====
 
@@ -998,7 +1012,7 @@ kind: class
 cpp: base2/cmd_sys/StdinMonitor.h:33
 py: stdin_monitor.py:25
 what: background thread reading stdin (C++: QThread; Python: threading.Thread daemon)
-status:
+status: ok
 
 type: check
 id: 108
@@ -1007,7 +1021,7 @@ kind: method
 cpp: base2/cmd_sys/StdinMonitor.h:35
 py: stdin_monitor.py:34
 what: singleton + start
-status:
+status: ok
 
 type: check
 id: 109
@@ -1016,7 +1030,8 @@ kind: method
 cpp: base2/cmd_sys/StdinMonitor.h:36
 py: stdin_monitor.py:40
 what: setter
-status:
+status: ok
+note: caller STDIO_BRIDGE/Main.cpp:16 pres subclass StdinMonitorBridge
 
 type: check
 id: 110
@@ -1025,7 +1040,8 @@ kind: method
 cpp: base2/cmd_sys/StdinMonitor.h:37
 py: stdin_monitor.py:43
 what: getter
-status:
+status: dead
+note: 0 callers (jen definice StdinMonitor.h:37)
 
 type: check
 id: 111
@@ -1034,7 +1050,7 @@ kind: method
 cpp: base2/cmd_sys/StdinMonitor.h:39
 py: stdin_monitor.py:49
 what: skip qt.*, dispatch via execute_threadSafe
-status:
+status: ok
 
 type: check
 id: 112
@@ -1043,7 +1059,7 @@ kind: method
 cpp: base2/cmd_sys/StdinMonitor.h:49
 py: stdin_monitor.py:57
 what: Win ReadFile loop (Python: unified sys.stdin.readline)
-status:
+status: ok
 
 type: check
 id: 113
@@ -1052,7 +1068,7 @@ kind: method
 cpp: base2/cmd_sys/StdinMonitor.h:75
 py: stdin_monitor.py:57
 what: fgets loop (Python: unified sys.stdin.readline)
-status:
+status: ok
 
 type: check
 id: 114
@@ -1061,7 +1077,7 @@ kind: data
 cpp: base2/cmd_sys/StdinMonitor.h:45
 py: stdin_monitor.py:29
 what: bool
-status:
+status: ok
 
 # ==== StdoutCmdOutput (base2/cmd_sys/StdoutCmdOutput.{h,cpp}) ====
 
@@ -1072,7 +1088,7 @@ kind: class
 cpp: base2/cmd_sys/StdoutCmdOutput.h:27
 py: stdout_cmd_output.py:30
 what: guard - echo executed cmds to stdout
-status:
+status: ok
 
 type: check
 id: 116
@@ -1081,7 +1097,7 @@ kind: ctor
 cpp: base2/cmd_sys/StdoutCmdOutput.h:31 impl .cpp:29
 py: stdout_cmd_output.py:33
 what: register with CMD_SYS
-status:
+status: ok
 
 type: check
 id: 117
@@ -1090,7 +1106,7 @@ kind: method
 cpp: base2/cmd_sys/StdoutCmdOutput.h:32
 py: stdout_cmd_output.py:40
 what: singleton
-status:
+status: ok
 
 type: check
 id: 118
@@ -1099,7 +1115,7 @@ kind: method
 cpp: base2/cmd_sys/StdoutCmdOutput.h:36
 py: stdout_cmd_output.py:45
 what: setter
-status:
+status: ok
 
 type: check
 id: 119
@@ -1108,7 +1124,8 @@ kind: method
 cpp: base2/cmd_sys/StdoutCmdOutput.h:37
 py: stdout_cmd_output.py:48
 what: getter
-status:
+status: dead
+note: 0 callers (jen definice StdoutCmdOutput.h:37)
 
 type: check
 id: 120
@@ -1117,7 +1134,7 @@ kind: method
 cpp: base2/cmd_sys/StdoutCmdOutput.h:39 impl .cpp:34
 py: stdout_cmd_output.py:51
 what: if enabled write args.toString + newline to stdout
-status:
+status: ok
 
 type: check
 id: 121
@@ -1126,7 +1143,7 @@ kind: data
 cpp: base2/cmd_sys/StdoutCmdOutput.h:41
 py: stdout_cmd_output.py:34
 what: bool default false
-status:
+status: ok
 
 # ==== WsServerLite (base2/mccp_com/WsServerLite.h) ====
 
@@ -1137,7 +1154,7 @@ kind: class
 cpp: base2/mccp_com/WsServerLite.h:12
 py: ws_server_lite.py:32
 what: WS server (C++: QWebSocketServer + QThread; Python: websockets + asyncio daemon Thread)
-status:
+status: ok
 
 type: check
 id: 123
@@ -1146,7 +1163,7 @@ kind: ctor
 cpp: base2/mccp_com/WsServerLite.h:15
 py: ws_server_lite.py:35
 what: (port=12345)
-status:
+status: ok
 
 type: check
 id: 124
@@ -1155,7 +1172,7 @@ kind: method
 cpp: base2/mccp_com/WsServerLite.h:21
 py: ws_server_lite.py:44
 what: singleton + moveToThread + start
-status:
+status: ok
 
 type: check
 id: 125
@@ -1164,7 +1181,7 @@ kind: method
 cpp: base2/mccp_com/WsServerLite.h:34
 py: ws_server_lite.py:57
 what: send text to all clients
-status:
+status: ok
 
 type: check
 id: 126
@@ -1173,7 +1190,7 @@ kind: method
 cpp: base2/mccp_com/WsServerLite.h:41
 py: ws_server_lite.py:62
 what: create server, listen (Python: _run_loop / _serve)
-status:
+status: ok
 
 type: check
 id: 127
@@ -1182,7 +1199,7 @@ kind: method
 cpp: base2/mccp_com/WsServerLite.h:48
 py: ws_server_lite.py:75
 what: accept new client (Python: async _handler)
-status:
+status: ok
 
 type: check
 id: 128
@@ -1191,7 +1208,7 @@ kind: method
 cpp: base2/mccp_com/WsServerLite.h:55
 py: ws_server_lite.py:75
 what: parse lines, dispatch each via execute_threadSafe
-status:
+status: ok
 
 type: check
 id: 129
@@ -1200,7 +1217,8 @@ kind: method
 cpp: base2/mccp_com/WsServerLite.h:65
 py:
 what: cleanup on disconnect (Python: async CM auto-handles)
-status: note
+status: ok
+note: C++ onDisconnected_ dela dve veci: clients_.removeAll(socket) + socket->deleteLater(). Py pokryva obe - odebrani je explicitni try/finally: self._clients.discard(websocket) v _handler (ws_server_lite.py:87-88), zanik objektu resi refcount/GC, takze deleteLater protejsek nepotrebuje. Timing sedi: _handler dobehne prave zavrenim spojeni (async for skonci), tedy ve stejny okamzik jako Qt signal disconnected. Upresneni: neni to 'async CM to udela sam' - cleanup je v portu explicitni, websockets.serve jen spousti _handler na spojeni. Py ma navic druhou cestu odebrani: _broadcast discardne klienta, kteremu selze send; C++ broadcast posila i na mrtvy socket a spoleha vyhradne na onDisconnected_. To je ve prospech portu, ne divergence.
 
 type: check
 id: 130
@@ -1209,7 +1227,7 @@ kind: data
 cpp: base2/mccp_com/WsServerLite.h:74
 py: ws_server_lite.py:37
 what: quint16
-status:
+status: ok
 
 type: check
 id: 131
@@ -1218,7 +1236,7 @@ kind: data
 cpp: base2/mccp_com/WsServerLite.h:75
 py: ws_server_lite.py:37
 what: QWebSocketServer* (Python: websockets server object)
-status:
+status: ok
 
 type: check
 id: 132
@@ -1227,7 +1245,7 @@ kind: data
 cpp: base2/mccp_com/WsServerLite.h:76
 py: ws_server_lite.py:37
 what: QList<QWebSocket*> (Python: Set)
-status:
+status: ok
 
 # ==== WsServerLiteGuard (base2/mccp_com/WsServerLiteGuard.h) ====
 
@@ -1238,7 +1256,7 @@ kind: class
 cpp: base2/mccp_com/WsServerLiteGuard.h:8
 py: ws_server_lite_guard.py:27
 what: guard broadcasting each cmd
-status:
+status: ok
 
 type: check
 id: 134
@@ -1247,7 +1265,7 @@ kind: ctor
 cpp: base2/mccp_com/WsServerLiteGuard.h:10
 py: ws_server_lite_guard.py:30
 what: (server*) - CmdExeGuard(Update) + register with CMD_SYS
-status:
+status: ok
 
 type: check
 id: 135
@@ -1256,7 +1274,7 @@ kind: method
 cpp: base2/mccp_com/WsServerLiteGuard.h:17
 py: ws_server_lite_guard.py:36
 what: singleton bound to WsServerLite::init()
-status:
+status: ok
 
 type: check
 id: 136
@@ -1265,7 +1283,7 @@ kind: method
 cpp: base2/mccp_com/WsServerLiteGuard.h:22
 py: ws_server_lite_guard.py:41
 what: broadcast args.toString (C++: QMetaObject queued; Python: run_coroutine_threadsafe)
-status:
+status: ok
 
 type: check
 id: 137
@@ -1274,7 +1292,7 @@ kind: data
 cpp: base2/mccp_com/WsServerLiteGuard.h:30
 py: ws_server_lite_guard.py:31
 what: WsServerLite* ref
-status:
+status: ok
 
 # ==== CmdBridge (base2/mccp_com/CmdBridge.{h,cpp}) ====
 
@@ -1285,7 +1303,7 @@ kind: class
 cpp: base2/mccp_com/CmdBridge.h:10
 py: cmd_bridge.py:30
 what: unified init facade
-status:
+status: ok
 
 type: check
 id: 139
@@ -1294,7 +1312,7 @@ kind: method
 cpp: base2/mccp_com/CmdBridge.h:12 impl .cpp:113
 py: cmd_bridge.py:32
 what: start WsServerLiteGuard::inst()
-status:
+status: ok
 
 type: check
 id: 140
@@ -1341,7 +1359,8 @@ kind: class
 cpp: base2/cmd_sys_display/LogGuard.h:29
 py: log_guard.py:28
 what: guard writing timestamp + args to cmdlog.txt
-status:
+status: ok
+note: base2/cmd_sys_display/LogGuard je byte-identicka s APPS/AI_T2LS/LogGuard, instancovana v AI_T2LS/Main.cpp:1757
 
 type: check
 id: 145
@@ -1350,7 +1369,7 @@ kind: ctor
 cpp: base2/cmd_sys_display/LogGuard.h:33 impl .cpp:28
 py: log_guard.py:29
 what: (path="config/cmdlog.txt") - mkpath, open append, register guard
-status:
+status: ok
 
 type: check
 id: 146
@@ -1359,7 +1378,7 @@ kind: dtor
 cpp: base2/cmd_sys_display/LogGuard.h:34 impl .cpp:39
 py: log_guard.py:40
 what: close file (Python: __del__)
-status:
+status: ok
 
 type: check
 id: 147
@@ -1368,7 +1387,7 @@ kind: method
 cpp: base2/cmd_sys_display/LogGuard.h:36 impl .cpp:45
 py: log_guard.py:47
 what: write "HH:MM:SS <args>\n" + flush
-status:
+status: ok
 
 type: check
 id: 148
@@ -1377,7 +1396,7 @@ kind: data
 cpp: base2/cmd_sys_display/LogGuard.h:40
 py: log_guard.py:36
 what: QFile (Python: TextIO)
-status:
+status: ok
 
 # ==== AppUtility (base2/app_common/AppUtility.h) - helper used by LogGuard/WindowPersist ====
 
@@ -1388,7 +1407,7 @@ kind: method
 cpp: base2/app_common/AppUtility.h:28
 py: window_persist.py:38 (v koumes/KOUMES)
 what: read config.t2l, find line by cmd name, replace or append
-status: note
+status: ok
 
 type: check
 id: 150

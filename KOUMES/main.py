@@ -93,12 +93,62 @@ def bootstrap(args: argparse.Namespace) -> None:
 def register_gui_cmds() -> None:
     """Register chroma / www command tables. GUI-only (needs PyQt6 at import)."""
     from .cmds_chroma import CmdsChroma
+    from .cmds_paste import CmdsPaste
     from .cmds_www import CmdsWww
     CmdsChroma.register_cmds()
     CmdsWww.register_cmds()
+    CmdsPaste.register_cmds()
+
+
+def _quit_on_signals(app) -> None:
+    """Turn SIGTERM / SIGINT into a normal quit.
+
+    The session is written in `aboutToQuit`, and a killed process never gets
+    there - so a `pkill` restart (which is how the app is normally cycled during
+    development) would silently throw the state away. The idle timer is the
+    usual trick to let Python see signals at all while Qt owns the loop.
+    """
+    import signal
+    from PyQt6.QtCore import QTimer
+
+    def bye(_sig, _frame):
+        app.quit()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(sig, bye)
+        except (ValueError, OSError):
+            pass
+
+    waker = QTimer(app)
+    waker.start(200)
+    waker.timeout.connect(lambda: None)
+
+
+def _prefer_xcb() -> None:
+    """Ask for XWayland on a Wayland session, so window placement works.
+
+    A Wayland client is not allowed to position its own window - the compositor
+    decides, which in practice means "wherever the mouse is". `setGeometry`
+    silently keeps the size and drops the coordinates, so a saved position can
+    never be restored and the app opens on a different monitor every time.
+    Under XWayland the same call lands exactly where it was asked to.
+
+    Set KOUMES_QPA to override, e.g. KOUMES_QPA=wayland to take the native
+    session back and give up on remembering where the window was.
+    """
+    override = os.environ.get("KOUMES_QPA")
+    if override:
+        os.environ["QT_QPA_PLATFORM"] = override
+        return
+    if os.environ.get("QT_QPA_PLATFORM"):
+        return
+    if os.environ.get("WAYLAND_DISPLAY") and os.environ.get("DISPLAY"):
+        os.environ["QT_QPA_PLATFORM"] = "xcb"
 
 
 def run_gui(args: argparse.Namespace) -> int:
+    _prefer_xcb()
     try:
         from PyQt6.QtWidgets import QApplication
     except ImportError:
@@ -118,10 +168,14 @@ def run_gui(args: argparse.Namespace) -> int:
     from .window_persist import WindowPersist
 
     app = QApplication(sys.argv[:1])
+    _quit_on_signals(app)
     win = MainWindow(args.root, args.start_dir)
     wire_toolbar(win)
     WindowPersist.install(win, app)
     win.show()
+    # After show: `set_window` fights the show itself if it lands earlier, and
+    # the panel restore wants a window that already has its startup content.
+    WindowPersist.restore()
     return app.exec()
 
 

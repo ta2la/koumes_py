@@ -330,6 +330,7 @@ Container class registering all chroma-specific CmdSys commands (~35 commands to
 - `chroma_html [--p2]` - full HTML of the target view (via `page.toHtml(callback)` + `QEventLoop.exec()`)
 - `chroma_text [--p2]` - plain text of the target view (via `page.toPlainText(callback)`)
 - `chroma_screenshot <path> [--p2]` - `view.grab().save(path, "PNG")`
+- `chroma_window <path>` - `window.grab().save(path, "PNG")` - celé Qt okno včetně toolbarů a info barů. Jediná cesta k snapshotu pod Waylandem: X grabbery (`import`, `xwd`) na okno nedosáhnou, `wmctrl -l` nevrací nic.
 
 **Panel navigation shortcuts:**
 - `dir_up` - navigate to parent of `_last_dir`

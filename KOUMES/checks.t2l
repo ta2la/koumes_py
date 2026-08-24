@@ -2,7 +2,7 @@
 # scope: C++ item (Class::member, Namespace::fn, CMD:name, MACRO)
 # cpp: relative path from cvz root + line
 # py: filename:line in Python port (empty if missing)
-# status: empty=unchecked, ok=verified match, issue=diff (viz note), dead=C++ dead code / not-needed, cpp_specific=Qt/C++ runtime mechanismus v py bezpředmětný
+# status: empty=unchecked, ok=verified match, issue=diff (viz note), dead=C++ dead code / not-needed, cpp_specific=Qt/C++ runtime mechanismus v py bezpředmětný, new_py_feature=Python-side záměrné rozšíření nad C++ (feature co C++ nemá, nebo Python-only fix Qt-specific problému)
 
 type: viewer
 name: checks
@@ -648,7 +648,8 @@ kind: fn
 cpp: APPS/AI_T2LS/Main.cpp:81
 py: main_window.py:186
 what: attach ChromaPage + WebChannel + inject script + initial load
-status:
+status: new_py_feature
+note: 8 QWebEngineSettings atributu doplneno (LocalContentCanAccessFileUrls, LocalContentCanAccessRemoteUrls, AllowRunningInsecureContent, JavascriptEnabled, JavascriptCanAccessClipboard, JavascriptCanPaste, PluginsEnabled, PdfViewerEnabled) - shoda s C++ Main.cpp:92-99. Zbyva jediny rozdil: injection point DocumentCreation misto C++ DocumentReady, coz je zamerny fix (corrections.md #7) - pri DocumentReady vidi dirs.html window.__chroma jako undefined, spadne do polling loopu a blika. Vracet na DocumentReady nelze.
 
 type: check
 id: 70
@@ -765,7 +766,7 @@ kind: fn
 cpp: APPS/AI_T2LS/Main.cpp:408
 py:
 what: Q_PROPERTY marker + visual style for cmd tooltip (Python: plain setToolTip)
-status: note
+status: ok
 
 type: check
 id: 83
@@ -774,7 +775,8 @@ kind: fn
 cpp: APPS/AI_T2LS/Main.cpp:449
 py:
 what: makes label clickable to fire cmd (Python: SKIP - Petr said info_selection self-serves)
-status: note
+status: dead
+note: wontfix - info_selection je jen displej, selection se zjistuje pres chroma_* cmds z WS (chroma_selection / chroma_line / chroma_file). Neni to mrtvy C++ kod, ale vedome neportovana funkcionalita; potvrdil Petr 2026-08-19.
 
 type: check
 id: 84
@@ -987,7 +989,8 @@ kind: data
 cpp: APPS/AI_T2LS/Main.cpp:937
 py: main_window.py:103
 what: qwebchannel.js + __chroma bootstrap (Python: bundled qwebchannel.js + CHROMA_BOOTSTRAP_JS)
-status:
+status: ok
+note: selection JSON doplnen o 3 chybejici pole podle C++ Main.cpp:937 - handler (walk-up na nejblizsi dataset.h predka), offset (r.startOffset) a preview {before, after} po 30 znacich z textoveho uzlu kolem offsetu.
 
 type: check
 id: 107
@@ -1005,7 +1008,7 @@ kind: fn
 cpp: APPS/AI_T2LS/Main.cpp:1245
 py: toolbar.py:66
 what: left panel hide toggle with splitter pixel shuffle (Python: simplified setVisible)
-status: note
+status: ok
 
 type: check
 id: 109
@@ -1014,7 +1017,7 @@ kind: fn
 cpp: APPS/AI_T2LS/Main.cpp:1304
 py: toolbar.py:71
 what: p2 hide toggle with splitter shuffle (Python: simplified)
-status: note
+status: ok
 
 type: check
 id: 110
@@ -1032,7 +1035,8 @@ kind: fn
 cpp: APPS/AI_T2LS/Main.cpp:1387
 py: main_window.py:485
 what: dir viewer switch (custom/dflt) + info bars + midView load
-status:
+status: ok
+note: (1) BUG opraven - doplnen guard self._last_mid_html != target_html, protejsek C++ 'if (*lastMidHtml == targetHtml) return'. Reloaduje se ted jen pri ZMENE vieweru, ne pri kazde zmene diru; prechod mezi adresari se stejnym dirs.html nechava stranku zit a prekresli se sama z bus.dirChanged na JS strane. Info bary, _last_dir, sel_file a titulek okna se aktualizuji vzdy, jako v C++. Overeno: 3 navigace = 1 setUrl (a ten byl nutny, cvz ma vlastni viewer repos). (2) Fallback pres walk-up misto CLI htmlPath NENI bug - koumes zadnou jedinou htmlPath nema, resolvuje walk-upem pres .t2l/config.t2l; je to tataz vec jako id 208, zamer. (3) Native vetev pro dir bez vieweru NENI bug - zachranna sit pro stav, ktery v C++ nastat nemuze (htmlPath je tam vzdy neprazdna, bud CLI default nebo dialog). V native vetvi se _last_mid_html cisti, jinak by se pozdejsi navrat k vieweru preskocil. Zdedeny naslkedek z C++: po preskocenem reloadu zustava v URL puvodni ?start=, takze panel_reload dir vrati panel na pocatecni adresar - C++ ma totez, oba pouzivaji prosty midView.reload().
 
 type: check
 id: 112
@@ -1041,7 +1045,8 @@ kind: fn
 cpp: APPS/AI_T2LS/Main.cpp:1499
 py: main_window.py:434
 what: red dir_up when parent leaves ORIGINAL sandbox
-status:
+status: ok
+note: doplneno jednorazove zavolani self._refresh_dir_up() v MainWindow.__init__ hned za _load_dir(start_dir) - protejsek C++ refreshDirUp() volaneho po connectu na dirChanged (Main.cpp:1515). _load_dir se vola primo, ne pres bus, takze dirChanged na startu nefiruje a tlacitko zustavalo bez stylu do prvni navigace. Overeno offscreen testem: start na sandbox root -> cerveny styl, start uvnitr -> normalni. Pozn.: tooltip zustava na startu 'dir_up', protoze ho wire_toolbar prepise az po konstruktoru - C++ dela totez ve stejnem poradi (refreshDirUp(), pak setCmdTooltip_), takze to neni divergence. Druhy C++ refreshDirUp() na konci click handleru protejsek nepotrebuje: py dir_up jde pres bus.notify_dir_change, coz dirChanged vyvola samo.
 
 type: check
 id: 113
@@ -1086,7 +1091,8 @@ kind: fn
 cpp: APPS/AI_T2LS/Main.cpp:1190
 py:
 what: makes info labels clickable (Python: SKIP per Petr; info_selection self-serves)
-status: note
+status: dead
+note: wontfix - totez co id 83: info_selection je jen displej, selection se zjistuje pres chroma_* cmds z WS (chroma_selection / chroma_line / chroma_file). Vedome neportovano, potvrdil Petr 2026-08-19.
 
 type: check
 id: 118
@@ -1791,7 +1797,7 @@ kind: class
 cpp:
 py: main_window.py:209
 what: tiny QObject exposed to JS via WebChannel as "panel" (Python-specific for role())
-status: note
+status: new_py_feature
 
 type: check
 id: 195
@@ -1800,7 +1806,7 @@ kind: class
 cpp: (C++ uses free QWidget + main() flow)
 py: main_window.py:221
 what: Python OO wrapper for main window init + bus handlers
-status: note
+status: ok
 
 type: check
 id: 196
@@ -1809,7 +1815,7 @@ kind: data
 cpp: (Qt QueuedConnection auto)
 py: main_window.py:236
 what: QTimer 50ms drain _deferred queue
-status: note
+status: new_py_feature
 
 type: check
 id: 197
@@ -1863,7 +1869,8 @@ kind: fn
 cpp: (Main.cpp:1277 handler)
 py: main_window.py:671
 what: update info_selection per panel + sync copy btn
-status:
+status: ok
+note: doplnena chybejici vetev - kdyz selekce ukazuje na vlastni soubor panelu a line je 0, label se vyprazdni misto duplikovani info_path (main_window.py _on_selection_changed). Porovnava se proti CmdsChroma._sel_for(panel).file, stejne jako C++ proti selDir_/selP1_/selP2_. Overeno: po chroma_setfile je line 0, po 'select p1 5' je line 5 a label se zobrazi.
 
 type: check
 id: 203
@@ -1872,7 +1879,8 @@ kind: fn
 cpp: (bus.panelShow handler Main.cpp:1134)
 py: main_window.py:452
 what: router for left/dir/p1/p2
-status:
+status: ok
+note: _on_panel_show uz nevola handlery naprimo - vetve dir/p1/p2 re-emituji na bus (notify_dir_change / notify_file_selected / notify_file_selected_rightmost), presne jako C++ panelShow router (Main.cpp:1134). Diky tomu firuji vsichni posluchaci, ne jen vlastni handler okna; overeno offscreen testem, ze panel_show dir ted spousti i _refresh_dir_up (dir_up zcervena na hranici sandboxu a zase zbledne uvnitr), coz predtim na teto ceste nefungovalo. Smycka nehrozi, panelShow a dirChanged jsou ruzne signaly. Vetev left zustava prima (leftView neni na zadnem bus signalu, C++ ji taky obsluhuje inline). Zbytkovy rozdil: panel_show dir na PRAVE zobrazeny adresar je ted no-op kvuli loop guardu v _on_dir_changed, zatimco C++ v tom pripade jeste prekresli info bary (webview taky nereloaduje). Drive py delal plny reload.
 
 type: check
 id: 204
@@ -1881,7 +1889,7 @@ kind: fn
 cpp: (JS-side in dirs.html)
 py: main_window.py:449
 what: no-op stub
-status: note
+status: ok
 
 type: check
 id: 205
@@ -1890,7 +1898,7 @@ kind: fn
 cpp: (viewers subscribe JS-side)
 py: main_window.py:431
 what: no-op stub
-status: note
+status: ok
 
 type: check
 id: 206
@@ -1908,7 +1916,8 @@ kind: fn
 cpp: (loadDetail / loadRightmost lambdas)
 py: main_window.py:574
 what: setUrl with role + file + optional line query
-status:
+status: ok
+note: dve veci - (1) zrusena native vetev s early-return, query se ted stavi stejne pro viewer HTML i pro nativni load, jako C++ loadDetail/loadRightmost, ktere na native taky nevetvi; (2) doplnen _ts cache-buster pro role=rightmost (protejsek C++ rmLoadCtr), bez nej p2 pri opakovanem chroma_setfile --p2 na stejny soubor dostal cachovanou stranku.
 
 # ==== main.py bootstrap (Python-specific split) ====
 
@@ -1919,7 +1928,8 @@ kind: fn
 cpp: (C++ QCommandLineParser inline in main())
 py: main.py:38
 what: argparse wrapper
-status:
+status: new_py_feature
+note: neopraveno zamerne, obe pulky jsou rozhodnuti portu, ne chyba. (1) root default cwd misto C++ QDir::homePath() - koumes je pip console-script, kde je cwd idiomaticky default (jako git nebo code .), a README ho takhle dokumentuje ('koumes # opens cwd'); prepnuti na $HOME by rozbilo dokumentovane chovani. (2) --html override chybi, protoze koumes nema jednu htmlPath - viewer si resolvuje walk-upem pres .t2l/config.t2l a fallback dirs, coz pokryva --dirview. Prenest --html by znamenalo vratit se k jedinemu natvrdo predanemu HTML.
 
 type: check
 id: 209
@@ -1937,7 +1947,7 @@ kind: fn
 cpp: (C++ calls Cmds_chroma/Cmds_www::registerCmds inline)
 py: main.py:69
 what: lazy CmdsChroma + CmdsWww register (deferred import for headless-safe)
-status: note
+status: new_py_feature
 
 type: check
 id: 211
@@ -1955,7 +1965,7 @@ kind: fn
 cpp: (not present in C++ - C++ always has GUI)
 py: main.py:104
 what: infinite sleep loop for WS + stdin daemon threads
-status: note
+status: new_py_feature
 
 # ==== _load_qwebchannel_js (Python-specific) ====
 
@@ -1966,7 +1976,7 @@ kind: fn
 cpp: (C++ uses Qt resource :/qtwebchannel/qwebchannel.js)
 py: main_window.py:88
 what: read bundled qwebchannel.js (PyQt6 nedistribuje Qt resource)
-status: note
+status: new_py_feature
 
 # ==== toolbar.py (Python-specific split of Main.cpp toolbar wiring) ====
 
@@ -2022,4 +2032,5 @@ kind: fn
 cpp: (fm button click handlers)
 py: toolbar.py:145
 what: mid fm -> chroma_openfm; detail fm -> xdg-open last_file
-status:
+status: ok
+note: fm uz nespousti subprocess.Popen naprimo - klik dispatchuje open_extern pres CMD_SYS, takze se loguje, broadcastuje a jde vyvolat zvenku. Doplnena chybejici www vetev (v www modu se otevira URL panelu, ne soubor) a wiring i pro p_rm, ktery byl skryty - C++ skryva fm jen na levem panelu. Port C++ wireExternal.

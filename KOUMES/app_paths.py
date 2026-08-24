@@ -33,6 +33,7 @@ class AppPaths:
     def __init__(self):
         self._dir_exe = str(Path(__file__).resolve().parent)
         self._dir_config = str(Path(self._dir_exe).parent / "config")
+        self._settings: Optional[dict] = None
 
     @classmethod
     def inst(cls) -> "AppPaths":
@@ -46,3 +47,25 @@ class AppPaths:
     def dir_config(self) -> str:
         os.makedirs(self._dir_config, exist_ok=True)
         return self._dir_config
+
+    def settings(self) -> dict:
+        """`config/settings.t2l` as a flat dict (last value wins on dupes).
+
+        Deployment-local knobs - info bar colours, exchange dir. Missing file or
+        an unreadable one is not an error: the caller falls back to defaults.
+        """
+        if self._settings is None:
+            self._settings = {}
+            path = os.path.join(self.dir_config(), "settings.t2l")
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#"):
+                            continue
+                        i = line.find(":")
+                        if i > 0:
+                            self._settings[line[:i].strip()] = line[i + 1:].strip()
+            except OSError:
+                pass
+        return self._settings

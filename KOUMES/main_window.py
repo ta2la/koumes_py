@@ -26,7 +26,7 @@ from urllib.parse import urlparse
 
 from PyQt6.QtCore import QObject, Qt, QTimer, QUrl, pyqtSlot
 from PyQt6.QtWebChannel import QWebChannel
-from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEngineScript
+from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEngineScript, QWebEngineSettings
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import (
     QHBoxLayout,
@@ -65,10 +65,12 @@ from .app_paths import AppPaths
 from .chroma_page import ChromaPage
 from .chroma_www_page import ChromaWwwPage
 from .cmds_chroma import CmdsChroma
+from .cmds_paste import CmdsPaste
 from .cmds_www import CmdsWww
 from .fs_bridge import FsBridge
-from .panel import Panel, wrap_panel
+from .panel import DetailPanel, DirPanel, LeftPanel, Panel, RightmostPanel
 from .panel_bus import PanelBus
+from .role_bar import button_label
 from . import viewer_resolver as vr
 from .viewer_bar import rebuild_viewer_bar
 
@@ -120,6 +122,10 @@ window.__chroma.ready.then(function (fs) {
         var r = s.getRangeAt(0);
         var e = r.commonAncestorContainer;
         if (e && e.nodeType === 3) e = e.parentElement;
+        var h = null;
+        for (var n = e; n; n = n.parentElement) {
+            if (n.dataset && n.dataset.h) { h = n.dataset.h; break; }
+        }
         var attrs = {};
         if (e && e.attributes) {
             for (var i = 0; i < e.attributes.length; ++i) {
@@ -127,8 +133,19 @@ window.__chroma.ready.then(function (fs) {
                 attrs[a.name] = a.value;
             }
         }
+        var startNode = r.startContainer;
+        var startOffset = r.startOffset;
+        var nodeText = (startNode && startNode.nodeType === 3)
+            ? (startNode.textContent || '') : '';
+        var preview = {
+            before: nodeText.slice(Math.max(0, startOffset - 30), startOffset),
+            after:  nodeText.slice(startOffset, startOffset + 30)
+        };
         fs.setSelection(JSON.stringify({
             text: s.toString(),
+            handler: h,
+            offset: startOffset,
+            preview: preview,
             tag:  e && e.tagName ? e.tagName : '',
             id:   e && e.id ? e.id : '',
             cls:  e && e.className ? e.className : '',
@@ -188,6 +205,23 @@ def setup_panel(view: QWebEngineView, role: str, bridge: FsBridge, bus: PanelBus
     page = ChromaPage(role, view)
     view.setPage(page)
 
+    # Relaxed settings - same 8 attributes the C++ setupPanel_ applies.
+    # LocalContentCanAccessFileUrls is load-bearing: viewer HTMLs are loaded
+    # via file:// and must be able to reach the files they render.
+    s = view.settings()
+    A = QWebEngineSettings.WebAttribute
+    for attr in (
+        A.LocalContentCanAccessFileUrls,
+        A.LocalContentCanAccessRemoteUrls,
+        A.AllowRunningInsecureContent,
+        A.JavascriptEnabled,
+        A.JavascriptCanAccessClipboard,
+        A.JavascriptCanPaste,
+        A.PluginsEnabled,
+        A.PdfViewerEnabled,
+    ):
+        s.setAttribute(attr, True)
+
     channel = QWebChannel(page)
     channel.registerObject("fs", bridge)
     channel.registerObject("bus", bus)
@@ -224,6 +258,7 @@ class MainWindow(QMainWindow):
         self.root = os.path.abspath(root)
         self.display_root = self.root
 
+        self._last_dir_html: str = ""
         self._last_p1_html: str = ""
         self._last_p1_file: str = ""
         self._last_p2_html: str = ""
@@ -250,7 +285,7 @@ class MainWindow(QMainWindow):
         CmdsChroma.set_bus(self.bus)
 
         self.left_view = QWebEngineView()
-        self.mid_view = QWebEngineView()
+        self.dir_view = QWebEngineView()
         self.detail_view = QWebEngineView()
         self.rm_view = QWebEngineView()
 
@@ -260,44 +295,68 @@ class MainWindow(QMainWindow):
         self.rm_www.setPage(ChromaWwwPage(www_profile(), self.rm_www))
 
         setup_panel(self.left_view, "parent", self.bridge, self.bus)
-        setup_panel(self.mid_view, "mid", self.bridge, self.bus)
+        setup_panel(self.dir_view, "mid", self.bridge, self.bus)
         setup_panel(self.detail_view, "detail", self.bridge, self.bus)
         setup_panel(self.rm_view, "rightmost", self.bridge, self.bus)
 
-        self.p_left: Panel = wrap_panel(self.left_view)
-        self.p_mid: Panel = wrap_panel(self.mid_view)
-        self.p_right: Panel = wrap_panel(self.detail_view, self.right_www)
-        self.p_rm: Panel = wrap_panel(self.rm_view, self.rm_www)
+        # One class per role - each knows which buttons it carries, whether it
+        # switches viewers or contents, and how it is tinted. See panel.py.
+        self.p_left: Panel = LeftPanel(self.left_view)
+        self.p_dir: Panel = DirPanel(self.dir_view)
+        self.p_right: Panel = DetailPanel(self.detail_view, self.right_www)
+        self.p_rm: Panel = RightmostPanel(self.rm_view, self.rm_www)
 
         self.p_left.wrap.setMinimumWidth(150)
-        self.p_mid.wrap.setMinimumWidth(150)
+        self.p_dir.wrap.setMinimumWidth(150)
 
-        pm_split = QSplitter(Qt.Orientation.Horizontal)
-        pm_split.addWidget(self.p_left.wrap)
-        pm_split.addWidget(self.p_mid.wrap)
-        pm_split.setSizes([200, 300])
+        left_dir_split = QSplitter(Qt.Orientation.Horizontal)
+        left_dir_split.addWidget(self.p_left.wrap)
+        left_dir_split.addWidget(self.p_dir.wrap)
 
         right_split = QSplitter(Qt.Orientation.Horizontal)
         right_split.addWidget(self.p_right.wrap)
         right_split.addWidget(self.p_rm.wrap)
-        right_split.setSizes([500, 500])
 
         main_split = QSplitter(Qt.Orientation.Horizontal)
-        main_split.addWidget(pm_split)
+        main_split.addWidget(left_dir_split)
         main_split.addWidget(right_split)
-        main_split.setSizes([920, 680])
+
+        # Widths are handed out in showEvent, not here - setSizes() before the
+        # window has its final geometry only sets a ratio, and the window gets
+        # resized twice on the way up (resize() here, then `set_window` from
+        # config.t2l). What came out depended on that order: dir ended up at its
+        # 150px minimum in one window and at a third of the width in another.
+        self._left_dir_split = left_dir_split
+        self._right_split = right_split
+        self._main_split = main_split
+        self._sized_once = False
+        # Set once a saved layout has been restored - the startup shares must
+        # not overwrite what the user left behind.
+        self._size_locked = False
+
+        # The paste strip is built by the left panel, which owns it - see
+        # app_bar.AppBar. The window only wires it up, because what a paste
+        # does (write a file, then open it in p1) is not the left panel's
+        # business.
+        self.app_bar = self.p_left.app_bar
+        CmdsPaste.configure(self.bus, self.root)
+        if self.app_bar is not None:
+            CmdsPaste.set_saved_fn(self.app_bar.show_saved)
+            self.app_bar.set_open_fn(self.bus.notify_file_selected)
 
         central = QWidget()
         lay = QVBoxLayout(central)
         lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
         lay.addWidget(main_split)
         self.setCentralWidget(central)
 
-        CmdsChroma.set_page(self.mid_view.page())
+        CmdsChroma.set_page(self.dir_view.page())
         CmdsChroma.set_detail_page(self.detail_view.page())
         CmdsChroma.set_rightmost_page(self.rm_view.page())
         CmdsChroma.set_detail_view(self.detail_view)
         CmdsChroma.set_rightmost_view(self.rm_view)
+        CmdsChroma.set_window(self)
         CmdsWww.set_detail_www(self.right_www)
         CmdsWww.set_rightmost_www(self.rm_www)
 
@@ -311,10 +370,25 @@ class MainWindow(QMainWindow):
         self._wire_left_panel_tabs()
         self._wire_dir_viewer_toggle()
 
-        self.p_rm.wrap.setVisible(False)
-        self.p_right.hide_rightmost.setText("◨")
+        # p2 starts visible, like C++ ("□" = both shown, Main.cpp:1218). It used
+        # to be hidden here from the days it was an empty www skeleton; now it
+        # loads the same startup page as p1, so there is nothing to hide.
+        self.p_right.hide_rightmost.setText("□")
+
+        # Left starts collapsed - the log / bookmarks / dirs-upper tabs are a
+        # look-something-up panel, not something you need in view all the time.
+        # Startup state only; `panel_toggle left` (◧ button) pulls it back out
+        # and works both ways from there.
+        self.p_left.wrap.setVisible(False)
+        self.p_dir.hide_parent.setText("◧")
 
         self._load_dir(self.start_dir)
+        # _load_dir is called directly, not via the bus, so dirChanged never
+        # fires at startup - without this the dir_up button keeps its default
+        # style and tooltip until the user navigates. C++ calls refreshDirUp()
+        # once right after wiring the same signal.
+        self._refresh_dir_up()
+        self._load_startup_detail()
         if self.start_file:
             self.bus.notify_file_selected(self.start_file)
 
@@ -322,19 +396,162 @@ class MainWindow(QMainWindow):
         if os.path.isfile(log_html):
             self.bus.notify_panel_show("left", log_html, "")
 
+    # Startup width shares of the whole window. dir is the file list - it needs
+    # a readable width and no more; the two viewer panels take what is left.
+    _INIT_LEFT_FRAC = 0.13
+    _INIT_DIR_FRAC = 0.21
+    _INIT_DIR_MIN = 240
+
+    def showEvent(self, ev) -> None:
+        super().showEvent(ev)
+        if self._sized_once:
+            return
+        self._sized_once = True
+        self._apply_initial_sizes()
+        # ...and once more once the window has stopped moving. `set_window` from
+        # config.t2l lands through the command queue a few ticks after show and
+        # resizes us; the splitter answers that by shrinking whatever it likes -
+        # which used to squeeze dir down onto its 150px minimum.
+        QTimer.singleShot(400, self._apply_initial_sizes)
+
+    def _apply_initial_sizes(self) -> None:
+        """Deal out panel widths once, on the first show."""
+        if self._size_locked:
+            return
+        total = self._main_split.width()
+        if total <= 0:
+            return
+        dir_w = max(self._INIT_DIR_MIN, int(total * self._INIT_DIR_FRAC))
+        left_w = max(150, int(total * self._INIT_LEFT_FRAC))
+        # A hidden left panel holds no width, but the splitter still needs a
+        # number for it - that is what it gets back when the user toggles it on.
+        left_dir_w = dir_w + (left_w if self.p_left.wrap.isVisible() else 0)
+        rest = max(300, total - left_dir_w)
+        self._left_dir_split.setSizes([left_w, dir_w])
+        self._main_split.setSizes([left_dir_w, rest])
+        self._right_split.setSizes([rest // 2, rest - rest // 2])
+
+    # -- session state (WindowPersist) --------------------------------------
+    def splitter_state(self) -> list:
+        """Panel widths, left to right. A hidden panel reports 0.
+
+        `isVisibleTo` rather than `isVisible`: this is read while the window is
+        going down, and by then the window itself is hidden, which makes every
+        `isVisible()` false. The first save wrote left and p2 as closed even
+        though both were open.
+        """
+        left = self.p_left.wrap.width() if self.p_left.wrap.isVisibleTo(self) else 0
+        rm = self.p_rm.wrap.width() if self.p_rm.wrap.isVisibleTo(self) else 0
+        return [left, self.p_dir.wrap.width(), self.p_right.wrap.width(), rm]
+
+    def restore_splitter(self, left: int, dir_w: int, p1: int, p2: int) -> None:
+        self._size_locked = True
+        # A panel saved at zero was hidden, not shrunk - restoring it as a
+        # sliver would leave a stripe nobody can grab.
+        self.p_left.wrap.setVisible(left > 0)
+        self.p_dir.hide_parent.setText("□" if left > 0 else "◧")
+        self.p_rm.wrap.setVisible(p2 > 0)
+        self.p_right.hide_rightmost.setText("□" if p2 > 0 else "◨")
+        self._left_dir_split.setSizes([left or 200, dir_w])
+        self._main_split.setSizes([(left if left > 0 else 0) + dir_w, p1 + p2])
+        self._right_split.setSizes([p1, p2])
+
+    def panel_state(self) -> dict:
+        """What each panel is showing - dir path, and file + viewer for p1/p2."""
+        def viewer_of(target: str, file: str) -> str:
+            if not target or not file:
+                return ""
+            return "native" if target == file else os.path.splitext(os.path.basename(target))[0]
+
+        return {
+            "dir": CmdsChroma._last_dir,
+            "p1": self._last_p1_file,
+            "p1v": viewer_of(self._last_p1_html, self._last_p1_file),
+            "p2": self._last_p2_file,
+            "p2v": viewer_of(self._last_p2_html, self._last_p2_file),
+        }
+
+    def restore_panels(self, state: dict) -> None:
+        """Put the panels back where they were. Anything gone is skipped."""
+        d = state.get("dir", "")
+        if d and os.path.isdir(d) and FsBridge.is_inside(d, self.root):
+            self._load_dir(d)
+
+        for panel, notify in (("p1", self.bus.notify_file_selected),
+                              ("p2", self.bus.notify_file_selected_rightmost)):
+            f = state.get(panel, "")
+            if not f or not os.path.isfile(f):
+                continue
+            notify(f)
+            viewer = state.get(panel + "v", "")
+            # The switch handler is registered by the selection above, so this
+            # order is the only one that works.
+            fn = CmdsChroma._switch_fns.get(panel)
+            if viewer and fn is not None:
+                fn(viewer)
+
+    def _startup_html(self) -> str:
+        """HTML shown in p1 / p2 before the user picks anything.
+
+        C++ takes `help.html` co-located with the app's dirs HTML and falls back
+        to that HTML itself (Main.cpp: `helpPath` / `detailInitHtml`). Same here,
+        only the dirs HTML is resolved through the viewer walk-up instead of an
+        argv path, so a project can shadow it from its own `.t2l/`.
+        """
+        dirs_html = vr.find_viewer_html(self.start_dir, self.root, "dirs")
+        if dirs_html:
+            co_located = os.path.join(os.path.dirname(dirs_html), "help.html")
+            if os.path.isfile(co_located):
+                return co_located
+        return vr.find_viewer_html(self.start_dir, self.root, "help") or dirs_html
+
+    def _load_startup_detail(self) -> None:
+        """Give p1 and p2 initial content - port of the detailInitHtml block.
+
+        Without this both right panels start blank until the user clicks a file.
+        p1 is skipped when a start file was passed on the command line: that file
+        is loaded a moment later anyway and the help page would only flash.
+        """
+        init_html = self._startup_html()
+        if not init_html:
+            return
+
+        if not self.start_file:
+            self._set_info_path(self.p_right.info_path, init_html)
+            self._set_info_viewer(self.p_right.info_viewer, init_html, is_native=True)
+            CmdsChroma.set_last_file(init_html)
+            CmdsChroma.set_last_file_viewer("NATIVE")
+            self._load_view_html(self.detail_view, init_html, "", "detail",
+                                 start=self.start_dir)
+
+        # p2 has no other startup source, so it always gets the page. C++ puts a
+        # "(rightmost - www skeleton)" placeholder in its info bar; p2 is a real
+        # viewer panel here (chroma_setfile --p2), so it shows the page like p1.
+        self._set_info_path(self.p_rm.info_path, init_html)
+        self._set_info_viewer(self.p_rm.info_viewer, init_html, is_native=True)
+        self._load_view_html(self.rm_view, init_html, "", "rightmost",
+                             start=self.start_dir)
+
     def _wire_dir_viewer_toggle(self) -> None:
         """Mid panel custom/dflt buttons: switch dir viewer via CmdSys."""
-        self.p_mid.dflt.clicked.connect(
+        self.p_dir.dflt.clicked.connect(
             lambda _=False: CMD_SYS().execute_thread_safe(
                 "viewer_switch dir dirs", "ui", -1, "TOOLBAR")
         )
-        self.p_mid.custom.clicked.connect(
+        # Read the name off the button, not its face - a squeezed role bar
+        # strips the text from everything but the active choice.
+        self.p_dir.custom.clicked.connect(
             lambda _=False: CMD_SYS().execute_thread_safe(
-                f"viewer_switch dir {self.p_mid.custom.text()}", "ui", -1, "TOOLBAR")
+                f"viewer_switch dir {button_label(self.p_dir.custom)}", "ui", -1, "TOOLBAR")
         )
 
     def _wire_left_panel_tabs(self) -> None:
-        """LEFT panel = 3-way switch: bookmarks / dirs-upper / log. Default = log."""
+        """LEFT panel = 4-way switch: bookmarks / dirs-upper / log / menu.
+
+        The first three swap the page in the web view; menu raises the widget
+        page behind it. Default stays on log - menu is somewhere you go to do
+        a thing, not something you want in view all the time.
+        """
         bm_html = os.path.join(self.root, ".t2l", "bookmarks.html")
         dirs_html = vr.find_viewer_html(self.root, self.root, "dirs")
         log_html = os.path.join(self.root, ".t2l", "cmdlog.html")
@@ -343,17 +560,12 @@ class MainWindow(QMainWindow):
         pL.custom.setText("bookmarks")
         pL.dflt.setText("dirs-upper")
         pL.log.setText("log")
+        pL.menu.setText("menu")
         pL.custom.setVisible(True)
         pL.dflt.setVisible(True)
         pL.log.setVisible(True)
+        pL.menu.setVisible(True)
         pL.log.setChecked(True)
-
-        pL.hide_parent.setVisible(False)
-        pL.dir_up.setVisible(False)
-        pL.fm.setVisible(False)
-        pL.reveal_dir.setVisible(False)
-        pL.hide_rightmost.setVisible(False)
-        pL.viewer_bar.setVisible(False)
 
         pL.custom.setToolTip(f'panel_show left "{bm_html}"')
         pL.dflt.setToolTip(f'panel_show left "{dirs_html}"' if dirs_html else "panel_show left <dirs-upper>")
@@ -368,6 +580,22 @@ class MainWindow(QMainWindow):
         pL.log.clicked.connect(
             lambda _=False, h=log_html: CMD_SYS().execute_thread_safe(f'panel_show left "{h}"', "ui", -1, "TOOLBAR")
         )
+
+        pL.menu.setToolTip("Actions on the app, not on the file in view")
+
+        # The three page tabs also have to lower the menu again, otherwise a
+        # `panel_show left` would swap a page nobody can see.
+        def show_page(_=False) -> None:
+            if pL.stack is not None:
+                pL.stack.setCurrentIndex(0)
+
+        def show_menu(_=False) -> None:
+            if pL.stack is not None:
+                pL.stack.setCurrentIndex(1)
+
+        for btn in (pL.custom, pL.dflt, pL.log):
+            btn.clicked.connect(show_page)
+        pL.menu.clicked.connect(show_menu)
 
     def _drain_cmd_queue(self) -> None:
         sys_ = CMD_SYS()
@@ -440,31 +668,53 @@ class MainWindow(QMainWindow):
         would_exit = not FsBridge.is_inside(parent, self.display_root)
         base_style = "font-size: 27px; padding: 0; min-width: 38px; min-height: 38px;"
         if would_exit:
-            self.p_mid.dir_up.setStyleSheet(base_style + " color: #f87171; font-weight: 700;")
-            self.p_mid.dir_up.setToolTip(f"Sandbox edge — click extends sandbox to {parent}")
+            self.p_dir.dir_up.setStyleSheet(base_style + " color: #f87171; font-weight: 700;")
+            self.p_dir.dir_up.setToolTip(f"Sandbox edge — click extends sandbox to {parent}")
         else:
-            self.p_mid.dir_up.setStyleSheet(base_style)
-            self.p_mid.dir_up.setToolTip(f"Dir up → {parent}")
+            self.p_dir.dir_up.setStyleSheet(base_style)
+            self.p_dir.dir_up.setToolTip(f"Dir up → {parent}")
 
     def _on_sandbox_changed(self, new_root: str) -> None:
         pass
 
     def _on_panel_show(self, panel: str, file: str, viewer: str) -> None:
+        # Re-emit on the bus instead of calling the handlers directly, so every
+        # listener sees the change (e.g. _refresh_dir_up, and the viewers' own
+        # JS-side subscriptions) - not just this window's own handler.
+        # Mirrors the C++ panelShow router. No loop: panelShow and
+        # dirChanged / fileSelected are separate signals.
         if panel == "dir":
             if os.path.isdir(file):
-                self._load_dir(file)
+                self.bus.notify_dir_change(file)
         elif panel == "p1":
             if os.path.isfile(file):
-                self._on_file_selected(file)
+                self.bus.notify_file_selected(file)
         elif panel == "p2":
             if os.path.isfile(file):
-                self._on_file_selected_rightmost(file)
+                self.bus.notify_file_selected_rightmost(file)
         elif panel == "left":
-            self._show_left_html(file)
+            # `panel_show left menu` is not a file - it raises the widget page.
+            # A tab reachable only by clicking would be the one thing in this
+            # app an agent cannot do, and the whole point is that both reach
+            # for the same commands.
+            if file == "menu":
+                self._show_left_menu()
+            else:
+                self._show_left_html(file)
+
+    def _show_left_menu(self) -> None:
+        pL = self.p_left
+        if pL.stack is None:
+            return
+        pL.stack.setCurrentIndex(1)
+        pL.menu.setChecked(True)
 
     def _show_left_html(self, file: str) -> None:
         if not os.path.isfile(file):
             return
+        # A page swap has to lower the menu, or it would load behind it.
+        if self.p_left.stack is not None:
+            self.p_left.stack.setCurrentIndex(0)
         url = QUrl.fromLocalFile(file)
         base = os.path.basename(file)
         info_path_file = file
@@ -490,12 +740,12 @@ class MainWindow(QMainWindow):
 
         custom_viewer = vr.read_viewer_name(path)
 
-        self.p_mid.custom.setVisible(bool(custom_viewer))
-        self.p_mid.dflt.setVisible(bool(custom_viewer))
+        self.p_dir.custom.setVisible(bool(custom_viewer))
+        self.p_dir.dflt.setVisible(bool(custom_viewer))
         if custom_viewer:
-            self.p_mid.custom.setText(custom_viewer)
-            self.p_mid.custom.setToolTip(f"viewer_switch dir {custom_viewer}")
-            self.p_mid.dflt.setToolTip("viewer_switch dir dirs")
+            self.p_dir.custom.setText(custom_viewer)
+            self.p_dir.custom.setToolTip(f"viewer_switch dir {custom_viewer}")
+            self.p_dir.dflt.setToolTip("viewer_switch dir dirs")
 
         root = self.bridge.allowed_dir_
         target_html = ""
@@ -507,28 +757,40 @@ class MainWindow(QMainWindow):
         if not target_html:
             target_html = vr.find_viewer_html(path, root, "dirs")
 
-        self._set_info_path(self.p_mid.info_path, path)
-        self._set_info_viewer(self.p_mid.info_viewer, target_html, is_native=False) if target_html \
-            else self.p_mid.info_viewer.setText("native")
+        self._set_info_path(self.p_dir.info_path, path)
+        self._set_info_viewer(self.p_dir.info_viewer, target_html, is_native=False) if target_html \
+            else self.p_dir.info_viewer.setText("native")
         CmdsChroma.set_last_dir_viewer(target_html)
 
         parent_dir = os.path.dirname(path) or path
         self._set_info_path(self.p_left.info_path, parent_dir)
 
         if target_html:
-            if mode == "custom":
-                self.p_mid.custom.setChecked(True)
-                self.p_mid.dflt.setChecked(False)
-            else:
-                self.p_mid.dflt.setChecked(True)
-                self.p_mid.custom.setChecked(False)
+            # Reload only when the VIEWER changes, not on every dir change.
+            # Navigating between two dirs that share dirs.html keeps the same
+            # page alive - dirs.html re-renders itself from bus.dirChanged on
+            # the JS side. A full setUrl here would flash the panel and throw
+            # away its scroll position on every step. Port of the C++
+            # `if (*lastMidHtml == targetHtml) return;` guard.
+            if self._last_dir_html != target_html:
+                self._last_dir_html = target_html
+                if mode == "custom":
+                    self.p_dir.custom.setChecked(True)
+                    self.p_dir.dflt.setChecked(False)
+                else:
+                    self.p_dir.dflt.setChecked(True)
+                    self.p_dir.custom.setChecked(False)
 
-            url = QUrl.fromLocalFile(target_html)
-            key = "dir" if mode == "custom" else "start"
-            url.setQuery(f"role=mid&{key}={path}")
-            self.mid_view.setUrl(url)
+                url = QUrl.fromLocalFile(target_html)
+                key = "dir" if mode == "custom" else "start"
+                url.setQuery(f"role=mid&{key}={path}")
+                self.dir_view.setUrl(url)
         else:
-            self.mid_view.setUrl(QUrl.fromLocalFile(path))
+            # No viewer anywhere in the walk-up: hand the raw dir to Chromium.
+            # The URL *is* the path here, so every dir change must reload, and
+            # the guard has to be cleared or a later viewer load would be skipped.
+            self._last_dir_html = ""
+            self.dir_view.setUrl(QUrl.fromLocalFile(path))
 
         self.setWindowTitle(f"KOUMES   {_path_from_index(path, self.root)}")
 
@@ -545,26 +807,60 @@ class MainWindow(QMainWindow):
                     return
                 url = QUrl.fromLocalFile(html)
                 url.setQuery(f"role=mid&dir={CmdsChroma._last_dir}")
-            self.mid_view.setUrl(url)
+            self.dir_view.setUrl(url)
 
         CmdsChroma.set_viewer_switch_fn("dir", switch_fn)
 
 
-    def _sync_copy_btn(self, label, visible: bool) -> None:
-        btn = label.property("copyBtn")
-        if btn is not None:
-            btn.setVisible(visible)
+    def _sync_copy_btn(self, label, visible: bool, line_visible: bool = False) -> None:
+        # Labels that carry no path:line button simply have no such property,
+        # so the second key is a no-op for them.
+        for key, vis in (("copyBtn", visible), ("copyBtnLine", line_visible)):
+            btn = label.property(key)
+            if btn is not None:
+                btn.setVisible(vis)
+
+    # Which panel each path label belongs to, so the row can pick up the
+    # selected line as well as the path. The left panel is not in the table -
+    # it has no selection of its own.
+    def _panel_of_info_path(self, label) -> str:
+        for panel, p in (("dir", self.p_dir), ("p1", self.p_right),
+                         ("p2", self.p_rm)):
+            if p.info_path is label:
+                return panel
+        return ""
 
     def _set_info_path(self, label, abs_path: str) -> None:
-        label.setText(_path_from_index(abs_path, self.root))
+        # One row now says what two used to. The bracket holds whatever counts
+        # as "picked" in this panel: a position inside a document, or the entry
+        # marked in a directory listing. The second copy button hands out the
+        # addressable form of that same thing.
+        panel = self._panel_of_info_path(label)
+        if panel == "dir":
+            # A directory has no line. What is selected in it is an entry, and
+            # its bare name is enough on a row that already shows the folder.
+            pre = str(CmdsChroma._preselects.get("dir", "") or "")
+            tag = os.path.basename(pre)
+            addressable = pre
+        else:
+            sel = CmdsChroma._sel_for(panel) if panel else None
+            # The position belongs to the file it was picked in. A row just
+            # handed a different file must not keep the previous one's.
+            line = sel.line if sel is not None and sel.file == abs_path else 0
+            tag = str(line) if line else ""
+            addressable = f"{abs_path}:{line}" if line else ""
+
+        short = _path_from_index(abs_path, self.root)
+        label.setText(f"{short} [{tag}]" if tag else short)
         label.setToolTip(abs_path)
         label.setProperty("cmdPath", abs_path)
+        label.setProperty("cmdPathLine", addressable)
         outside = _is_outside_sandbox(abs_path, self.root)
         label.setStyleSheet(
             "color: #f87171; font-weight: 700;" if outside
             else "color: #f9fafb; font-weight: 700;"
         )
-        self._sync_copy_btn(label, bool(abs_path))
+        self._sync_copy_btn(label, bool(abs_path), bool(addressable))
 
     def _on_dir_changed(self, path: str) -> None:
         if path == CmdsChroma._last_dir:
@@ -572,14 +868,26 @@ class MainWindow(QMainWindow):
         self._load_dir(path)
 
     def _load_view_html(self, view: QWebEngineView, target: str, file: str,
-                         role: str, line: int = 0) -> None:
-        if target == file:
-            view.setUrl(QUrl.fromLocalFile(file))
-            return
+                         role: str, line: int = 0, start: str = "") -> None:
+        # Query is built the same way for a viewer HTML and for a native load
+        # (target == file) - matches C++ loadDetail / loadRightmost, which never
+        # branch on native either.
         url = QUrl.fromLocalFile(target)
-        q = f"file={file}&role={role}"
+        q = f"role={role}"
+        if start:
+            # Startup loads have no file yet, only the dir the app opened on -
+            # same pair (role, start) C++ setupPanel_ puts on every panel URL.
+            q += f"&start={start}"
+        if file:
+            q += f"&file={file}"
         if line > 0:
             q += f"&line={line}"
+        if role == "rightmost":
+            # Cache-buster: p2 reloads the same file repeatedly via
+            # `chroma_setfile <path> --p2` and would otherwise be served the
+            # cached page. C++ does the same with rmLoadCtr.
+            self._rm_load_ctr = getattr(self, "_rm_load_ctr", 0) + 1
+            q += f"&_ts={self._rm_load_ctr}"
         url.setQuery(q)
         view.setUrl(url)
 
@@ -669,23 +977,50 @@ class MainWindow(QMainWindow):
         target.setUrl(url)
 
     def _on_selection_changed(self, panel: str, file: str, line: int) -> None:
-        short = _path_from_index(file, self.root) if file else ""
-        text = f"{short}:{line}" if line else short
-        label = None
+        label = path_label = None
         if panel == "dir":
-            label = self.p_mid.info_selection
+            label, path_label = self.p_dir.info_selection, self.p_dir.info_path
         elif panel == "p1":
-            label = self.p_right.info_selection
+            label, path_label = self.p_right.info_selection, self.p_right.info_path
         elif panel == "p2":
-            label = self.p_rm.info_selection
+            label, path_label = self.p_rm.info_selection, self.p_rm.info_path
         if label is None:
             return
+
+        # The path row carries the picked position too, so it has to be redrawn
+        # here. In a document panel the selection is only about that row when it
+        # names the file the row is showing; in the dir panel the selection is a
+        # preselected entry, which the row reports whatever it points at.
+        if path_label is not None:
+            shown = str(path_label.property("cmdPath") or "")
+            if shown and (panel == "dir" or shown == file):
+                self._set_info_path(path_label, shown)
+
+        # Selection == the panel's own current dir/file with no line is redundant
+        # (info_path already shows it) -> clear the row instead of duplicating.
+        sel = CmdsChroma._sel_for(panel)
+        if sel is not None and line == 0 and file == sel.file:
+            label.setText("")
+            label.setToolTip("")
+            label.setProperty("cmdPath", "")
+            label.setProperty("cmdPathLine", "")
+            self._sync_copy_btn(label, False)
+            return
+
+        short = _path_from_index(file, self.root) if file else ""
+        # Brackets, not a colon: this row repeats info_path and the position is
+        # the only thing it adds, so the eye can find it without a colour of
+        # its own. The copy button hands out the colon form for pasting.
+        text = f"{short} [{line}]" if line else short
         label.setText(text)
         label.setToolTip(file)
         label.setProperty("cmdPath", file)
+        # Second copy button hands out the addressable form; without a line
+        # there is nothing to add and the button stays hidden.
+        label.setProperty("cmdPathLine", f"{file}:{line}" if line else "")
         outside = _is_outside_sandbox(file, self.root)
         label.setStyleSheet(
             "color: #f87171; font-weight: 400;" if outside
             else "color: #9ca3af; font-weight: 400;"
         )
-        self._sync_copy_btn(label, bool(file))
+        self._sync_copy_btn(label, bool(file), bool(file) and line > 0)

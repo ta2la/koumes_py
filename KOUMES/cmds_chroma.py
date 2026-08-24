@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import Callable, Dict, Optional
 
 from PyQt6.QtCore import QEventLoop
+from PyQt6.QtWidgets import QWidget
 from PyQt6.QtWebEngineCore import QWebEnginePage
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 
@@ -43,6 +44,7 @@ class CmdsChroma:
     _rightmost_page: Optional[QWebEnginePage] = None
     _detail_view: Optional[QWebEngineView] = None
     _rightmost_view: Optional[QWebEngineView] = None
+    _window: Optional[QWidget] = None
 
     _last_dir: str = ""
     _last_file: str = ""
@@ -80,6 +82,10 @@ class CmdsChroma:
     @classmethod
     def set_rightmost_view(cls, v: QWebEngineView) -> None:
         cls._rightmost_view = v
+
+    @classmethod
+    def set_window(cls, w: QWidget) -> None:
+        cls._window = w
 
     @classmethod
     def set_bus(cls, b: PanelBus) -> None:
@@ -466,6 +472,21 @@ class CmdsChroma:
             return 0
         sys_.add("chroma_screenshot", chroma_screenshot, category="chroma")
 
+        def chroma_window(args, data, ctx):
+            if args.count() < 2:
+                return args.append_error("chroma_window: usage <path>")
+            if cls._window is None:
+                return args.append_error("chroma_window: main window not set")
+            path = args.get(1).value
+            # Qt renders the widget itself, so this works under Wayland where
+            # X11 grabbers (import, xwd) cannot reach the window at all.
+            px = cls._window.grab()
+            if not px.save(path, "PNG"):
+                return args.append_error("chroma_window: save failed")
+            args.append(path, "PATH")
+            return 0
+        sys_.add("chroma_window", chroma_window, category="chroma")
+
         def _widen_if_needed(parent: str) -> bool:
             fs = FsBridge.inst()
             if fs is None:
@@ -495,9 +516,17 @@ class CmdsChroma:
         sys_.add("dir_up", dir_up, category="chroma")
 
         def reveal_dir(args, data, ctx):
-            f = cls._last_file
+            # Which panel's document to reveal. p1 by default - that is where
+            # the button lived alone until p2 grew one too.
+            panel = args.get(1).value if args.count() >= 2 and not args.get(1).name else "p1"
+            if panel not in ("p1", "p2"):
+                return args.append_error("reveal_dir: usage: reveal_dir [p1|p2]")
+            sel = cls._sel_for(panel)
+            f = sel.file if sel is not None else ""
+            if not f and panel == "p1":
+                f = cls._last_file
             if not f:
-                return args.append_error("reveal_dir: no file in p1")
+                return args.append_error(f"reveal_dir: no file in {panel}")
             parent = os.path.dirname(os.path.abspath(f))
             if not parent:
                 return args.append_error("reveal_dir: no parent")

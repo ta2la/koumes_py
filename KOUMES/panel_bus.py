@@ -16,7 +16,7 @@
 
 Python port of APPS/AI_T2LS/PanelBus.h.
 
-Register as "bus" in every WebChannel (left/mid/detail/rightmost panel).
+Register as "bus" in every WebChannel (left/dir/detail/rightmost panel).
 When one panel calls a notify_* method, every panel receives the corresponding
 signal. Each panel decides what to do based on its role.
 """

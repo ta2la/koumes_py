@@ -20,9 +20,11 @@ Every button click is routed through CmdSys.execute_thread_safe(cmdline, ..., "T
 so it gets logged, broadcast, and can be triggered externally via WS.
 The actual action is performed by a callback registered with CmdsChroma
 (reload / toggle / tab_toggle dispatch tables).
+
+Which buttons a panel *has* is the panel class's business (see panel.py); this
+module only says what they do.
 """
 
-import subprocess
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QUrl
@@ -39,6 +41,7 @@ def _exec(cmd: str) -> None:
 
 
 def wire_toolbar(win: "MainWindow") -> None:
+    _wire_app_bar(win)
     _wire_reload(win)
     _wire_hide_toggles(win)
     _wire_tab_toggles(win)
@@ -46,15 +49,22 @@ def wire_toolbar(win: "MainWindow") -> None:
     _wire_fm_buttons(win)
 
 
+def _wire_app_bar(win: "MainWindow") -> None:
+    # The strip belongs to the left panel now, and a panel that does not carry
+    # one leaves this None rather than growing an empty bar.
+    if win.app_bar is not None:
+        win.app_bar.paste.clicked.connect(lambda _=False: _exec("paste_clipboard"))
+
+
 def _wire_reload(win: "MainWindow") -> None:
     CmdsChroma.set_reload_fn("left", win.left_view.reload)
-    CmdsChroma.set_reload_fn("dir", win.mid_view.reload)
+    CmdsChroma.set_reload_fn("dir", win.dir_view.reload)
     CmdsChroma.set_reload_fn("p1", win.detail_view.reload)
     CmdsChroma.set_reload_fn("p2", win.rm_view.reload)
 
     for panel, key in (
         (win.p_left, "left"),
-        (win.p_mid, "dir"),
+        (win.p_dir, "dir"),
         (win.p_right, "p1"),
         (win.p_rm, "p2"),
     ):
@@ -66,7 +76,7 @@ def _wire_hide_toggles(win: "MainWindow") -> None:
     def toggle_left() -> None:
         new_visible = not win.p_left.wrap.isVisible()
         win.p_left.wrap.setVisible(new_visible)
-        win.p_mid.hide_parent.setText("□" if new_visible else "◧")
+        win.p_dir.hide_parent.setText("□" if new_visible else "◧")
 
     def toggle_p2() -> None:
         new_visible = not win.p_rm.wrap.isVisible()
@@ -76,16 +86,14 @@ def _wire_hide_toggles(win: "MainWindow") -> None:
     CmdsChroma.set_toggle_fn("left", toggle_left)
     CmdsChroma.set_toggle_fn("p2", toggle_p2)
 
-    win.p_mid.hide_parent.setCheckable(False)
-    win.p_mid.hide_parent.setToolTip("panel_toggle left")
-    win.p_mid.hide_parent.clicked.connect(lambda _=False: _exec("panel_toggle left"))
+    win.p_dir.hide_parent.setCheckable(False)
+    win.p_dir.hide_parent.setToolTip("panel_toggle left")
+    win.p_dir.hide_parent.clicked.connect(lambda _=False: _exec("panel_toggle left"))
 
     win.p_right.hide_rightmost.setCheckable(False)
     win.p_right.hide_rightmost.setToolTip("panel_toggle p2")
     win.p_right.hide_rightmost.clicked.connect(lambda _=False: _exec("panel_toggle p2"))
 
-    win.p_rm.hide_rightmost.setVisible(False)
-    win.p_left.hide_parent.setVisible(False)
 
 
 def _wire_tab_toggles(win: "MainWindow") -> None:
@@ -131,29 +139,46 @@ def _wire_tab_toggles(win: "MainWindow") -> None:
 
 
 def _wire_dir_navigation(win: "MainWindow") -> None:
-    win.p_mid.dir_up.setToolTip("dir_up")
-    win.p_mid.dir_up.clicked.connect(lambda _=False: _exec("dir_up"))
+    win.p_dir.dir_up.setToolTip("dir_up")
+    win.p_dir.dir_up.clicked.connect(lambda _=False: _exec("dir_up"))
 
-    win.p_right.reveal_dir.setToolTip("reveal_dir")
-    win.p_right.reveal_dir.clicked.connect(lambda _=False: _exec("reveal_dir"))
+    # Both document panels reveal their own file's dir - the button was on p2's
+    # toolbar all along, just wired to nothing.
+    for panel, key in ((win.p_right, "p1"), (win.p_rm, "p2")):
+        panel.reveal_dir.setToolTip(f"reveal_dir {key}")
+        panel.reveal_dir.clicked.connect(
+            lambda _=False, k=key: _exec(f"reveal_dir {k}"))
 
-    for pnl in (win.p_left, win.p_mid, win.p_right, win.p_rm):
-        pnl.reveal_dir.setVisible(pnl is win.p_right)
-        pnl.dir_up.setVisible(pnl is win.p_mid)
 
 
 def _wire_fm_buttons(win: "MainWindow") -> None:
-    win.p_mid.fm.setToolTip("chroma_openfm")
-    win.p_mid.fm.clicked.connect(lambda _=False: _exec("chroma_openfm"))
+    win.p_dir.fm.setToolTip("chroma_openfm")
+    win.p_dir.fm.clicked.connect(lambda _=False: _exec("chroma_openfm"))
 
-    win.p_right.fm.setToolTip("open_extern (detail file)")
+    # Tabbable panels: context-aware. View mode opens the current file, www mode
+    # opens the current URL. Both go through the `open_extern` command rather
+    # than spawning a process here, so the click is logged, broadcast, and
+    # reproducible from outside. Port of the C++ wireExternal lambda.
+    def wire_external(pnl, www_view) -> None:
+        if pnl.fm is None:
+            return
+        pnl.fm.setToolTip("open_extern <current file / url>")
 
-    def open_detail() -> None:
-        f = CmdsChroma._last_file
-        if f:
-            subprocess.Popen(["xdg-open", f])
+        def on_click(_checked=False, p=pnl, w=www_view) -> None:
+            in_www = p.stack is not None and p.stack.currentIndex() == 1
+            if in_www:
+                if w is None:
+                    return
+                target = w.url().toString()
+                if not target or target == "about:blank":
+                    return
+            else:
+                target = CmdsChroma._last_file
+                if not target:
+                    return
+            _exec(f'open_extern "{target}"')
 
-    win.p_right.fm.clicked.connect(lambda _=False: open_detail())
+        pnl.fm.clicked.connect(on_click)
 
-    for pnl in (win.p_left, win.p_rm):
-        pnl.fm.setVisible(False)
+    wire_external(win.p_right, win.right_www)
+    wire_external(win.p_rm, win.rm_www)

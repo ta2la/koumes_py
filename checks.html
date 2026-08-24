@@ -25,6 +25,8 @@
   .item.status-dead:hover { background: #e5e7eb; opacity: 0.85; }
   .item.status-cpp   { border-left-color: #0284c7; background: #f0f9ff; }
   .item.status-cpp:hover { background: #e0f2fe; }
+  .item.status-newpy { border-left-color: #a855f7; background: #faf5ff; }
+  .item.status-newpy:hover { background: #f3e8ff; }
   .item.status-open  { border-left-color: #cbd5e1; background: #fff; }
   .num  { color: #6b7280; text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
   .box  { text-align: center; font-size: 15px; cursor: default; }
@@ -100,6 +102,7 @@
       case 'issue':        return '✗';
       case 'dead':         return '✓†';
       case 'cpp_specific': return '∅';
+      case 'new_py_feature': return '✨';
       default:             return '☐';
     }
   }
@@ -110,6 +113,7 @@
       case 'issue':        return 'status-issue';
       case 'dead':         return 'status-dead';
       case 'cpp_specific': return 'status-cpp';
+      case 'new_py_feature': return 'status-newpy';
       default:             return 'status-open';
     }
   }
@@ -137,13 +141,14 @@
 
   function render(records) {
     const checks = records.filter(r => r.type === 'check');
-    const stats = { ok: 0, issue: 0, dead: 0, cpp: 0, open: 0 };
+    const stats = { ok: 0, issue: 0, dead: 0, cpp: 0, newpy: 0, open: 0 };
     for (const c of checks) {
       const s = (c.status || '').trim().toLowerCase();
       if (s === 'ok') stats.ok++;
       else if (s === 'issue') stats.issue++;
       else if (s === 'dead') stats.dead++;
       else if (s === 'cpp_specific') stats.cpp++;
+      else if (s === 'new_py_feature') stats.newpy++;
       else stats.open++;
     }
     $root.innerHTML = '';
@@ -156,6 +161,7 @@
       + '<span title="checknuto, nesedí">✗ ' + stats.issue + '</span>'
       + '<span title="dead code v C++, neportováno">✓† ' + stats.dead + '</span>'
       + '<span title="C++ specific (Qt/thread/macro), v py nepotrebne">∅ ' + stats.cpp + '</span>'
+      + '<span title="Python-side zamerne rozsireni nad C++">✨ ' + stats.newpy + '</span>'
       + '<span title="nechecknuto">☐ ' + stats.open + '</span>'
       + '</span>'
       + '<label class="toggle"><input type="checkbox" id="cppToggle"> show cpp</label>';
