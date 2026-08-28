@@ -270,10 +270,18 @@ class FsBridge(QObject):
     def setSelectedLine(self, n: int) -> None:
         self.selected_line_ = n
 
+    # A selection outlives what it points at: rename or delete the file and the
+    # viewer has no reason to publish anything new, so the old path would be
+    # answered to `chroma_file` and painted in the info bar forever. A selection
+    # that no longer exists is no selection.
     def current_selected_dir(self) -> str:
+        if self.selected_dir_ and not os.path.isdir(self.selected_dir_):
+            self.selected_dir_ = ""
         return self.selected_dir_
 
     def current_selected_file(self) -> str:
+        if self.selected_file_ and not os.path.isfile(self.selected_file_):
+            self.selected_file_ = ""
         return self.selected_file_
 
     def current_selected_line(self) -> int:

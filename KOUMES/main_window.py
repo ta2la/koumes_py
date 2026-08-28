@@ -405,21 +405,15 @@ class MainWindow(QMainWindow):
     _INIT_DIR_MIN = 240
 
 
-    def _window_title(self, path: str = "") -> str:
-        """`KOUMES <sandbox> [· <dir uvnitr>]`.
+    def _window_title(self) -> str:
+        """`KOUMES <sandbox>` - nic vic.
 
-        Sandbox je identita instance - pri vice bezicich koumesech je to jedina
-        vec, podle ktere se v prepinaci oken poznaji. Drive tu byla jen zkracena
-        cesta k aktualnimu diru, takze dve instance nad ruznymi stromy mohly mit
-        v titulku to same.
+        Sandbox je identita instance: pri vice bezicich koumesech je to jedina
+        vec, podle ktere se v prepinaci oken poznaji. Aktualni adresar do
+        titulku nepatri - meni se pri kazdem kroku a tim tu identitu rozmazava;
+        kde jsi, rekne info bar.
         """
-        title = f"KOUMES  {self.root}"
-        if not path:
-            return title
-        cur = os.path.normpath(os.path.abspath(path))
-        root = os.path.normpath(os.path.abspath(self.root))
-        rel = cur[len(root):].lstrip(os.sep) if cur.startswith(root) else cur
-        return f"{title}  ·  {rel}" if rel else title
+        return f"KOUMES  {self.root}"
 
     def showEvent(self, ev) -> None:
         super().showEvent(ev)
@@ -837,7 +831,6 @@ class MainWindow(QMainWindow):
             self._last_dir_html = ""
             self.dir_view.setUrl(QUrl.fromLocalFile(path))
 
-        self.setWindowTitle(self._window_title(path))
 
         def switch_fn(viewer: str) -> None:
             if viewer == "dirs":
@@ -885,6 +878,10 @@ class MainWindow(QMainWindow):
             # A directory has no line. What is selected in it is an entry, and
             # its bare name is enough on a row that already shows the folder.
             pre = str(CmdsChroma._preselects.get("dir", "") or "")
+            # Same reason as in FsBridge: what is gone is not marked.
+            if pre and not os.path.exists(pre):
+                pre = ""
+                CmdsChroma._preselects.pop("dir", None)
             tag = os.path.basename(pre)
             addressable = pre
         else:

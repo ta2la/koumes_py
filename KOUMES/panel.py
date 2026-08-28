@@ -272,7 +272,7 @@ class Panel(QWidget):
         self.fm = icon_btn("⬈", "Open externally (fm / browser)")
         self.reveal_dir = icon_btn("📂", "Show doc's dir in dir panel")
         self.hide_rightmost = icon_btn("□", "Rightmost Panel", checkable=True)
-        self.help = icon_btn("❓", "Help - opens help.md in the sandbox root")
+        self.help = icon_btn("❓", "Help - opens the help of what this panel shows")
 
         for name in ("tab_toggle", "refresh", "hide_parent", "dir_up",
                      "fm", "reveal_dir", "hide_rightmost", "help"):
@@ -424,7 +424,7 @@ class DirPanel(Panel):
     button for a neighbour lives here, never the one that would hide us."""
 
     ROLE = "dir"
-    TOOLBAR = ("refresh", "hide_parent", "dir_up", "fm")
+    TOOLBAR = ("refresh", "hide_parent", "dir_up", "fm", "help")
     ROLE_BAR = DirRoleBar
 
 
@@ -443,5 +443,5 @@ class RightmostPanel(Panel):
     Same as p1 minus the toggle that would hide itself."""
 
     ROLE = "p2"
-    TOOLBAR = ("tab_toggle", "refresh", "fm", "reveal_dir")
+    TOOLBAR = ("tab_toggle", "refresh", "fm", "reveal_dir", "help")
     HAS_WWW = True

@@ -32,6 +32,7 @@ from PyQt6.QtCore import QUrl
 
 from cmd_sys import CMD_SYS
 from .cmds_chroma import CmdsChroma
+from . import help_resolver as hr
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
@@ -153,55 +154,88 @@ def _wire_dir_navigation(win: "MainWindow") -> None:
 
 
 
-#: what a freshly generated help.md says - enough to show the button works and
-#: to say where to write the real thing.
+#: what a freshly generated help says - enough to show the button works and to
+#: say where to write the real thing.
 _HELP_STUB = """# Nápověda
 
 Tenhle soubor zatím nikdo nenapsal. Koumes ho založil sám, když jste poprvé
-klikli na ❓.
+klikli na ❓ a ve stromu žádná nápověda nebyla.
 
-**Sem se píše nápověda k tomuhle stromu.** Leží v jeho kořeni jako `help.md`,
-je to obyčejný markdown a tlačítko ❓ ho vždycky otevře tady v panelu `p1`.
+**Sem se píše nápověda k tomuhle stromu.** Leží v jeho kořeni, jmenuje se po
+adresáři (`<jméno adresáře>.help.md`) a je to obyčejný markdown.
+
+Nápověda se dá napsat ke každému adresáři i ke každému souboru, vždycky pod
+stejným jménem - `<jméno>.help.md` vedle toho, co vysvětluje; u adresáře uvnitř
+něj. Tlačítko ❓ vezme tu nejužší, kterou najde, a když soubor svoji nemá,
+zeptá se jeho adresáře a postupně jeho rodičů - až sem.
 
 Co sem patří: co v tomhle stromu je, jak je uspořádaný, na co si dát pozor.
 Klidně to nechte napsat agenta - vidí do stejných souborů jako vy.
 """
 
 
-def _ensure_help(path: str) -> None:
-    """Write a starter help.md when the tree has none.
+def _ensure_root_help(root: str) -> str:
+    """Last resort: a tree with no help anywhere gets a starter one at its root.
 
     A help button that opens nothing looks broken. Rather than reporting a
-    missing file, the first click creates one that says what belongs in it.
+    missing file, the first click writes one that says what belongs in it - and
+    from then on it is the answer every deeper level falls back to.
     """
+    path = hr.root_help_path(root)
     if os.path.exists(path):
-        return
+        return path
     try:
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(_HELP_STUB)
     except OSError:
-        pass          # read-only tree - `chroma_setfile` reports it anyway
+        return ""     # read-only tree - nothing to open, say so by staying quiet
+    return path
 
 
 def _wire_help(win: "MainWindow") -> None:
-    """Help button on p1 - opens `help.md` from the sandbox root.
+    """❓ on dir, p1 and p2 - each shows the help of what its panel holds.
+
+    Where it lands: a panel that shows documents shows its own help (p1 into p1,
+    p2 into p2). The dir panel has nowhere to put a document, so its help goes
+    to p1.
 
     It goes through `chroma_setfile` like any other navigation, so the click is
     logged and broadcast; a button that reached into the view directly would be
     the one thing on the toolbar an agent could not reproduce.
     """
-    help_md = os.path.join(win.root, "help.md")
-    win.p_right.help.setToolTip(f"chroma_setfile {help_md}")
-
-    def on_click(_checked: bool = False) -> None:
-        _ensure_help(help_md)
-        # p1 may be sitting on its www tab, where the file would load behind it
-        pnl = win.p_right
+    def show(target_panel: str, help_path: str) -> None:
+        if not help_path:
+            help_path = _ensure_root_help(win.root)
+        if not help_path:
+            return
+        # The target may be sitting on its www tab, where the file would load
+        # behind it.
+        pnl = win.p_rm if target_panel == "p2" else win.p_right
         if pnl.stack is not None and pnl.stack.currentIndex() == 1:
-            _exec("tab_toggle p1")
-        _exec(f'chroma_setfile "{help_md}"')
+            _exec(f"tab_toggle {target_panel}")
+        tail = " --p2" if target_panel == "p2" else ""
+        _exec(f'chroma_setfile "{help_path}"{tail}')
 
-    win.p_right.help.clicked.connect(on_click)
+    def wire(button, tip: str, resolve) -> None:
+        if button is None:
+            return
+        button.setToolTip(tip)
+        button.clicked.connect(lambda _=False: resolve())
+
+    wire(win.p_dir.help, "chroma_setfile <help of this dir>",
+         lambda: show("p1", hr.find_help_for_dir(
+             CmdsChroma._last_dir or win.root, win.root)))
+
+    wire(win.p_right.help, "chroma_setfile <help of this file>",
+         lambda: show("p1", hr.find_help_for_file(
+             CmdsChroma._last_file, win.root)))
+
+    def p2_file() -> str:
+        sel = CmdsChroma._sel_for("p2")
+        return sel.file if sel is not None else ""
+
+    wire(win.p_rm.help, "chroma_setfile <help of this file> --p2",
+         lambda: show("p2", hr.find_help_for_file(p2_file(), win.root)))
 
 
 def _wire_fm_buttons(win: "MainWindow") -> None:
