@@ -773,10 +773,10 @@ id: 83
 scope: makeLabelClickable_ (static fn)
 kind: fn
 cpp: APPS/AI_T2LS/Main.cpp:449
-py:
-what: makes label clickable to fire cmd (Python: SKIP - Petr said info_selection self-serves)
-status: dead
-note: wontfix - info_selection je jen displej, selection se zjistuje pres chroma_* cmds z WS (chroma_selection / chroma_line / chroma_file). Neni to mrtvy C++ kod, ale vedome neportovana funkcionalita; potvrdil Petr 2026-08-19.
+py: panel.py:119 (make_label_clickable + set_label_clickable + _ClickCatcher)
+what: makes label clickable to fire cmd
+status: ok
+note: doplneno 2026-08-28. Puvodni verdikt 'dead / wontfix' (2026-08-19) sedel jen na info_selection, ktery je opravdu jen displej - jenze tenhle helper drzi klikatelnost i pro info_path a info_viewer, a to je jina funkce (otevri to v p1). Petr to nasel jako degradaci: 'zobrazovac ma mit moznost se dostat do pozice souboru a byt zobrazen'. Rozdeleno: info_selection zustava neportovany (je skryty), info_path/info_viewer klikatelne jsou. Viz id 117.
 
 type: check
 id: 84
@@ -1089,10 +1089,10 @@ id: 117
 scope: wireClickToP1 lambda
 kind: fn
 cpp: APPS/AI_T2LS/Main.cpp:1190
-py:
-what: makes info labels clickable (Python: SKIP per Petr; info_selection self-serves)
-status: dead
-note: wontfix - totez co id 83: info_selection je jen displej, selection se zjistuje pres chroma_* cmds z WS (chroma_selection / chroma_line / chroma_file). Vedome neportovano, potvrdil Petr 2026-08-19.
+py: main_window.py:552 (_wire_infobar_clicks)
+what: makes info labels clickable -> panel_show p1 <path>
+status: ok
+note: doplneno 2026-08-28, viz id 83. Drzi info_path i info_viewer na vsech ctyrech panelech; klik jde pres CMD_SYS jako 'panel_show p1 \"<path>\"' se zdrojem INFOBAR, takze je videt v cmdlogu. Klikatelny je jen radek zobrazovace. Radek s cestou (info_path) je nadrátovany na zadnem panelu - Petr 2026-08-28: "aby byl aktivni soubor ktery uz zobrazuju je hloupost; tedy prvni radek neaktivni vzdy". C++ ho drátovalo na left/mid/p2 a vynechavalo jen p1; tady je inertni vsude. NATIVE taky nikam nevede - zobrazovac je sam ten soubor, label nenese cestu.
 
 type: check
 id: 118

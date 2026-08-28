@@ -11,3 +11,9 @@ dist/
 .venv/
 venv/
 .env
+
+# Not public. The repo carries code - KOUMES/ and cmd_sys/ - and nothing else.
+marketing/
+
+# Working backups made while editing; kept on disk, never in history.
+*.bak-*

@@ -25,7 +25,7 @@ A panel = toolbar row (refresh + navigation buttons)
 
 from typing import Optional
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QEvent, QObject, Qt
 
 from .app_paths import AppPaths
 from .app_bar import AppBar
@@ -114,6 +114,50 @@ def _make_copy_btn(parent: QWidget, target_label: QLabel, prop: str = "cmdPath",
 
     btn.clicked.connect(do_copy)
     return btn
+
+
+# The info bar's own QSS carries `QLabel[clickable="true"]:hover`, but a label
+# that sets its own stylesheet wins over its parent's, so every setter that
+# styles a label has to repeat the rule. Kept here so there is one copy of it.
+HOVER_QSS = 'QLabel[clickable="true"]:hover { color: #fbbf24; }'
+
+
+class _ClickCatcher(QObject):
+    """Gives a QLabel the clicked() it does not have.
+
+    The release is caught on the way in and swallowed - the labels are
+    text-selectable, and without swallowing it a click would both fire the
+    command and leave a selection behind.
+    """
+
+    def __init__(self, cb, parent: QWidget) -> None:
+        super().__init__(parent)
+        self._cb = cb
+
+    def eventFilter(self, obj, ev) -> bool:  # noqa: N802 - Qt name
+        if ev.type() == QEvent.Type.MouseButtonRelease:
+            self._cb()
+            return True
+        return False
+
+
+def make_label_clickable(label: QLabel, cb) -> None:
+    """Wire a label to fire `cb` on click. Whether the click does anything is
+    decided per content by `set_label_clickable` - the wiring is permanent, the
+    `clickable` property is not."""
+    label.setAttribute(Qt.WidgetAttribute.WA_Hover)
+    # Parented to the label, so it lives exactly as long as it is needed.
+    label.installEventFilter(_ClickCatcher(cb, label))
+
+
+def set_label_clickable(label: QLabel, on: bool) -> None:
+    """Mark a label as leading somewhere: hand cursor + the amber hover."""
+    label.setProperty("clickable", on)
+    label.setCursor(Qt.CursorShape.PointingHandCursor if on
+                    else Qt.CursorShape.IBeamCursor)
+    st = label.style()
+    st.unpolish(label)
+    st.polish(label)
 
 
 _MENU_PAGE_QSS = (
@@ -228,9 +272,10 @@ class Panel(QWidget):
         self.fm = icon_btn("⬈", "Open externally (fm / browser)")
         self.reveal_dir = icon_btn("📂", "Show doc's dir in dir panel")
         self.hide_rightmost = icon_btn("□", "Rightmost Panel", checkable=True)
+        self.help = icon_btn("❓", "Help - opens help.md in the sandbox root")
 
         for name in ("tab_toggle", "refresh", "hide_parent", "dir_up",
-                     "fm", "reveal_dir", "hide_rightmost"):
+                     "fm", "reveal_dir", "hide_rightmost", "help"):
             btn = getattr(self, name)
             if btn is None:
                 continue
@@ -388,7 +433,8 @@ class DetailPanel(Panel):
     dir, and carries the ◨ that hides its neighbour p2."""
 
     ROLE = "p1"
-    TOOLBAR = ("tab_toggle", "refresh", "hide_rightmost", "fm", "reveal_dir")
+    TOOLBAR = ("tab_toggle", "refresh", "hide_rightmost", "fm", "reveal_dir",
+               "help")
     HAS_WWW = True
 
 

@@ -68,7 +68,8 @@ from .cmds_chroma import CmdsChroma
 from .cmds_paste import CmdsPaste
 from .cmds_www import CmdsWww
 from .fs_bridge import FsBridge
-from .panel import DetailPanel, DirPanel, LeftPanel, Panel, RightmostPanel
+from .panel import (DetailPanel, DirPanel, HOVER_QSS, LeftPanel, Panel,
+                    RightmostPanel, make_label_clickable, set_label_clickable)
 from .panel_bus import PanelBus
 from .role_bar import button_label
 from . import viewer_resolver as vr
@@ -274,7 +275,7 @@ class MainWindow(QMainWindow):
             self.start_dir = target
             self.start_file = None
 
-        self.setWindowTitle(f"KOUMES  {_path_from_index(self.root, self.root)}")
+        self.setWindowTitle(self._window_title())
         self.resize(1600, 900)
 
         self.bridge = FsBridge(self.root)
@@ -369,6 +370,7 @@ class MainWindow(QMainWindow):
 
         self._wire_left_panel_tabs()
         self._wire_dir_viewer_toggle()
+        self._wire_infobar_clicks()
 
         # p2 starts visible, like C++ ("□" = both shown, Main.cpp:1218). It used
         # to be hidden here from the days it was an empty www skeleton; now it
@@ -401,6 +403,23 @@ class MainWindow(QMainWindow):
     _INIT_LEFT_FRAC = 0.13
     _INIT_DIR_FRAC = 0.21
     _INIT_DIR_MIN = 240
+
+
+    def _window_title(self, path: str = "") -> str:
+        """`KOUMES <sandbox> [· <dir uvnitr>]`.
+
+        Sandbox je identita instance - pri vice bezicich koumesech je to jedina
+        vec, podle ktere se v prepinaci oken poznaji. Drive tu byla jen zkracena
+        cesta k aktualnimu diru, takze dve instance nad ruznymi stromy mohly mit
+        v titulku to same.
+        """
+        title = f"KOUMES  {self.root}"
+        if not path:
+            return title
+        cur = os.path.normpath(os.path.abspath(path))
+        root = os.path.normpath(os.path.abspath(self.root))
+        rel = cur[len(root):].lstrip(os.sep) if cur.startswith(root) else cur
+        return f"{title}  ·  {rel}" if rel else title
 
     def showEvent(self, ev) -> None:
         super().showEvent(ev)
@@ -531,6 +550,29 @@ class MainWindow(QMainWindow):
         self._set_info_viewer(self.p_rm.info_viewer, init_html, is_native=True)
         self._load_view_html(self.rm_view, init_html, "", "rightmost",
                              start=self.start_dir)
+
+    def _wire_infobar_clicks(self) -> None:
+        """The viewer row is an address: click it and that viewer lands in p1.
+
+        `t2l.html` is a file like any other and has to be able to step into the
+        file's place and be shown. The path row above it is deliberately left
+        inert - it names the document the panel already displays. Port of the
+        C++ wireClickToP1 (Main.cpp:1190), which wired both rows.
+        """
+        def wire(label) -> None:
+            def go(lbl=label) -> None:
+                path = lbl.property("cmdPath")
+                if not lbl.property("clickable") or not path:
+                    return
+                # Through CmdSys, so an info bar click reaches the cmdlog and
+                # the bus like every other command - the same one an agent
+                # would send over the socket.
+                CMD_SYS().execute_thread_safe(
+                    f'panel_show p1 "{path}"', "ui", -1, "INFOBAR")
+            make_label_clickable(label, go)
+
+        for panel in (self.p_left, self.p_dir, self.p_right, self.p_rm):
+            wire(panel.info_viewer)
 
     def _wire_dir_viewer_toggle(self) -> None:
         """Mid panel custom/dflt buttons: switch dir viewer via CmdSys."""
@@ -758,8 +800,11 @@ class MainWindow(QMainWindow):
             target_html = vr.find_viewer_html(path, root, "dirs")
 
         self._set_info_path(self.p_dir.info_path, path)
-        self._set_info_viewer(self.p_dir.info_viewer, target_html, is_native=False) if target_html \
-            else self.p_dir.info_viewer.setText("native")
+        if target_html:
+            self._set_info_viewer(self.p_dir.info_viewer, target_html, is_native=False)
+        else:
+            self._set_info_viewer(self.p_dir.info_viewer, "", is_native=True)
+            self.p_dir.info_viewer.setText("native")
         CmdsChroma.set_last_dir_viewer(target_html)
 
         parent_dir = os.path.dirname(path) or path
@@ -792,7 +837,7 @@ class MainWindow(QMainWindow):
             self._last_dir_html = ""
             self.dir_view.setUrl(QUrl.fromLocalFile(path))
 
-        self.setWindowTitle(f"KOUMES   {_path_from_index(path, self.root)}")
+        self.setWindowTitle(self._window_title(path))
 
         def switch_fn(viewer: str) -> None:
             if viewer == "dirs":
@@ -856,10 +901,11 @@ class MainWindow(QMainWindow):
         label.setProperty("cmdPath", abs_path)
         label.setProperty("cmdPathLine", addressable)
         outside = _is_outside_sandbox(abs_path, self.root)
-        label.setStyleSheet(
-            "color: #f87171; font-weight: 700;" if outside
-            else "color: #f9fafb; font-weight: 700;"
-        )
+        base = "#f87171" if outside else "#f9fafb"
+        # The path row never leads anywhere: it names what the panel is already
+        # showing, so opening it would be opening what is open.
+        set_label_clickable(label, False)
+        label.setStyleSheet("QLabel { color: %s; font-weight: 700; }" % base)
         self._sync_copy_btn(label, bool(abs_path), bool(addressable))
 
     def _on_dir_changed(self, path: str) -> None:
@@ -900,7 +946,11 @@ class MainWindow(QMainWindow):
             label.setText(_path_from_index(target, self.root))
             label.setToolTip(target)
             label.setProperty("cmdPath", target)
-        label.setStyleSheet("color: #9ca3af;")
+        # The viewer is a file like any other and has to be able to step into
+        # the file's place and be shown. NATIVE names no separate file - the
+        # document renders itself - so there is nothing to open.
+        set_label_clickable(label, not is_native and os.path.isfile(target))
+        label.setStyleSheet("QLabel { color: #9ca3af; }" + HOVER_QSS)
         self._sync_copy_btn(label, not is_native and bool(target))
 
     def _on_file_selected(self, path: str) -> None:

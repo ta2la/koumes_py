@@ -25,6 +25,7 @@ Which buttons a panel *has* is the panel class's business (see panel.py); this
 module only says what they do.
 """
 
+import os
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QUrl
@@ -47,6 +48,7 @@ def wire_toolbar(win: "MainWindow") -> None:
     _wire_tab_toggles(win)
     _wire_dir_navigation(win)
     _wire_fm_buttons(win)
+    _wire_help(win)
 
 
 def _wire_app_bar(win: "MainWindow") -> None:
@@ -149,6 +151,57 @@ def _wire_dir_navigation(win: "MainWindow") -> None:
         panel.reveal_dir.clicked.connect(
             lambda _=False, k=key: _exec(f"reveal_dir {k}"))
 
+
+
+#: what a freshly generated help.md says - enough to show the button works and
+#: to say where to write the real thing.
+_HELP_STUB = """# Nápověda
+
+Tenhle soubor zatím nikdo nenapsal. Koumes ho založil sám, když jste poprvé
+klikli na ❓.
+
+**Sem se píše nápověda k tomuhle stromu.** Leží v jeho kořeni jako `help.md`,
+je to obyčejný markdown a tlačítko ❓ ho vždycky otevře tady v panelu `p1`.
+
+Co sem patří: co v tomhle stromu je, jak je uspořádaný, na co si dát pozor.
+Klidně to nechte napsat agenta - vidí do stejných souborů jako vy.
+"""
+
+
+def _ensure_help(path: str) -> None:
+    """Write a starter help.md when the tree has none.
+
+    A help button that opens nothing looks broken. Rather than reporting a
+    missing file, the first click creates one that says what belongs in it.
+    """
+    if os.path.exists(path):
+        return
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(_HELP_STUB)
+    except OSError:
+        pass          # read-only tree - `chroma_setfile` reports it anyway
+
+
+def _wire_help(win: "MainWindow") -> None:
+    """Help button on p1 - opens `help.md` from the sandbox root.
+
+    It goes through `chroma_setfile` like any other navigation, so the click is
+    logged and broadcast; a button that reached into the view directly would be
+    the one thing on the toolbar an agent could not reproduce.
+    """
+    help_md = os.path.join(win.root, "help.md")
+    win.p_right.help.setToolTip(f"chroma_setfile {help_md}")
+
+    def on_click(_checked: bool = False) -> None:
+        _ensure_help(help_md)
+        # p1 may be sitting on its www tab, where the file would load behind it
+        pnl = win.p_right
+        if pnl.stack is not None and pnl.stack.currentIndex() == 1:
+            _exec("tab_toggle p1")
+        _exec(f'chroma_setfile "{help_md}"')
+
+    win.p_right.help.clicked.connect(on_click)
 
 
 def _wire_fm_buttons(win: "MainWindow") -> None:
