@@ -26,6 +26,30 @@ from .cmd_sys import CMD_SYS
 from .cmd_utils import CmdUtils
 
 
+NOT_DOCUMENTED = "No documentation available for this command."
+HELP_FILE = os.path.join(os.path.dirname(__file__), "cmd_sys.help.md")
+
+
+def command_help(name: str) -> str:
+    """Text of section `### <name>` in cmd_sys.help.md (without the heading); NOT_DOCUMENTED if none."""
+    try:
+        with open(HELP_FILE, "r", encoding="utf-8") as f:
+            lines = f.read().split("\n")
+    except OSError:
+        return NOT_DOCUMENTED
+    out, inside = [], False
+    for line in lines:
+        if line.startswith("### "):
+            if inside:
+                break
+            inside = line[4:].strip().strip("`") == name
+        elif line.startswith("## ") or line.startswith("# "):
+            if inside:
+                break
+        elif inside:
+            out.append(line)
+    return "\n".join(out).strip() or NOT_DOCUMENTED
+
 class CmdsCmdSys:
     @staticmethod
     def register_cmds_() -> bool:
@@ -64,15 +88,7 @@ class CmdsCmdSys:
             if args.count() < 2:
                 return args.append_error("usage: cmd_help <command_name>")
             name = args.get(1).value
-            base_dir = os.path.join(os.path.dirname(__file__), "cmds_help")
-            help_path = os.path.join(base_dir, f"{name}.md")
-            if not os.path.isfile(help_path):
-                help_path = os.path.join(base_dir, "__not_documented__.md")
-            try:
-                with open(help_path, "r", encoding="utf-8") as f:
-                    text = f.read().strip()
-            except OSError:
-                text = ""
+            text = command_help(name)
             lines = text.split("\n") if text else []
             while lines and lines[0].strip().startswith("--"):
                 flag = lines.pop(0).strip()
