@@ -1,5 +1,20 @@
 <!doctype html>
-<html lang="cs">
+<!--
+Copyright (C) 2026 Petr Talla. [petr.talla@gmail.com]
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+          http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -93,6 +108,20 @@
   .entry.active { background: #dbeafe; color: #1e40af; }
   .entry.selected { background: #fde8d2; color: #92400e; }
   .ico { width: 16px; text-align: center; flex: none; }
+  .nm  { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Repo (dir s .git): ikona podle druhu jako v dirview, jmeno do cervena. */
+  .nm.repo { color: #b4413a; }
+  /* ❓ vedle položky - otevře nápovědu té věci, ne tu věc samotnou. */
+  .help-btn { flex: none; border: 0; background: transparent; cursor: pointer;
+              font-size: 13px; line-height: 1; padding: 2px 4px; border-radius: 4px;
+              opacity: 0.45; }
+  .help-btn:hover { opacity: 1; background: #fde68a; }
+  /* Zobrazovače u .t2l - záznamy si svůj viewer můžou nést v sobě, takže
+     u nich stojí za to nabídnout ho rovnou v seznamu. */
+  .vw { flex: none; border: 1px solid #d1d5db; background: #f9fafb; cursor: pointer;
+        font: 500 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: #6b7280; padding: 3px 5px; border-radius: 3px; }
+  .vw:hover { background: #ddd6fe; border-color: #a855f7; color: #4c1d95; }
   .empty-note { padding: 10px 12px; color: #9ca3af; font-size: 13px; }
 
   .pick-screen { flex: 1; display: flex; align-items: center; justify-content: center;
@@ -302,19 +331,8 @@ ChromaHandle.prototype.createWritable = function () {
   }
 
   // ====== konfigurace ======
-  var SERVER_DISK_ROOT = '~';            // http server běží s -d ~/
-  var SERVER_URL       = 'http://127.0.0.1:8778'; // hardcoded, ať to funguje i když dirs běží přes file://
+  var SERVER_DISK_ROOT = '';                     // bez odhadu domovského adresáře - cestu zadá uživatel
 
-  // hotdir = oblíbený adresář — zatím natvrdo, časem konfigurovatelně.
-  // Zobrazí se jen poslední segment cesty (např. „skuhrov" místo CODE_ROOT/orders/skuhrov).
-  // Hotdir mimo root je disabled (FSA nepustí).
-  var HOTDIRS = [
-    'CODE_ROOT/orders/skuhrov',
-    'CODE_ROOT/orders/skuhrov/develop',
-    'CODE_ROOT/koumes_py',
-    'CODE_ROOT/CLAUDE',
-    'CODE_ROOT/TIMEAXIS/2026_q2/05_16_article_nulldev_app'
-  ];
 
   // ====== roots list (IndexedDB) ======
   function dbGetRoots() {
@@ -372,7 +390,7 @@ ChromaHandle.prototype.createWritable = function () {
 
   // ====== stav ======
   var rootHandle   = null;
-  var rootAbsPath  = null;    // absolutní cesta k rootu na disku (např. ~/foo)
+  var rootAbsPath  = null;    // absolutní cesta k rootu na disku (např. /home/user/foo)
   var path         = [];      // jména od rootu po aktivní (prázdné = aktivní je root)
   var selectedPath = null;    // string „a/b/file.txt" relativně k rootu, pro highlight
   var parentPage   = 0;       // stránka v levém sloupci
@@ -380,6 +398,8 @@ ChromaHandle.prototype.createWritable = function () {
   var filterText   = '';      // text-filtr v pravém sloupci
   var filterDir    = true;    // ukazovat adresáře?
   var filterFile   = true;    // ukazovat soubory?
+  var showHelp     = true;    // ukazovat samotné .help.md soubory ve výpisu?
+  var dirHelpCache = {};      // abs cesta adresáře -> jméno jeho nápovědy | null
   var wantFocusCaret = null;  // obnovit focus na filter input s touto pozicí (null = ne)
   var subPanelMode   = null;  // 'hotdirs' | 'roots' | null
 
@@ -442,8 +462,9 @@ ChromaHandle.prototype.createWritable = function () {
   });
 
   // ====== helpers ======
-  // Zapíše aktuální stav (dir + file) do <root>/cvz/iris-state.json — ať si Karel
-  // přečte cestu k dir/file přímo z disku (Browser MCP je single-tab + cross-origin).
+  // Writes the current state (dir + file) to <root>/cvz/iris-state.json so an agent
+  // without the WebSocket can read the dir/file path straight from disk. Legacy; the
+  // write silently fails when <root>/cvz does not exist.
   function writeState() {
     if (!rootHandle || !rootAbsPath) return;
     var state = {
@@ -495,18 +516,122 @@ ChromaHandle.prototype.createWritable = function () {
     });
   }
 
+  // ====== nápověda u položky ======
+  // `<jmeno>.help.md` leží vedle věci, kterou vysvětluje; u adresáře je uvnitř
+  // něj a jmenuje se po něm. Tlačítko otevře ji, klik na řádek pořád otevírá
+  // tu věc - proto stopPropagation.
+  var HELP_RE = /\.help\.(md|html)$/i;
+
+  function isHelpName(name) { return HELP_RE.test(name); }
+
+  function helpNameFor(fileName, nameSet) {
+    var cands = [fileName + '.help.md', fileName + '.help.html'];
+    for (var i = 0; i < cands.length; i++) if (nameSet[cands[i]]) return cands[i];
+    return null;
+  }
+
+  // `active` misto `p1`: soubor padne do toho panelu, ktery je prave aktivni.
+  // Kdo chce konkretni panel, rekne si o nej jmenem - seznam adresaru o tom
+  // rozhodovat nema.
+  function openInP1(absPath) {
+    var cf = window.__chroma && window.__chroma.fs;
+    if (cf && cf.exec) { cf.exec('panel_show active "' + absPath + '"'); return; }
+    var b = window.__chroma && window.__chroma.bus;
+    if (b && b.notifyFileSelected) b.notifyFileSelected(absPath);
+  }
+
+  function openInP1With(absPath, viewer) {
+    var cf = window.__chroma && window.__chroma.fs;
+    if (cf && cf.exec) cf.exec('panel_show active "' + absPath + '" ' + viewer);
+  }
+
+  // Zobrazovače se dotahují na disku (in-file direktiva + walk-up config),
+  // takže tlačítka dorazí o chvíli později než řádek. Kdo mezitím řádek
+  // překreslil, ten už tenhle `d` v dokumentu nemá - proto ta kontrola.
+  function addViewerBtns(d, absPath) {
+    var cf = window.__chroma && window.__chroma.fs;
+    if (!cf || !cf.viewers) return;
+    cf.viewers(absPath, function (names) {
+      if (!names || !names.length || !d.isConnected) return;
+      names.forEach(function (n) {
+        var b = el('button', 'vw', n);
+        b.title = 'open in p1 with viewer ' + n;
+        b.dataset.cmd = 'panel_show active "' + absPath + '" ' + n;
+        b.dataset.cmdNofire = '1';
+        b.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          openInP1With(absPath, n);
+        });
+        d.appendChild(b);
+      });
+    });
+  }
+
+  function makeHelpBtn(absPath, title) {
+    var b = el('button', 'help-btn', '❓');
+    b.title = title;
+    b.dataset.cmd = 'panel_show active "' + absPath + '"';
+    b.dataset.cmdNofire = '1';
+    b.addEventListener('click', function (ev) {
+      ev.stopPropagation();
+      openInP1(absPath);
+    });
+    return b;
+  }
+
+  // Adresář svou nápovědu nosí uvnitř, takže se na ni musí sáhnout na disk -
+  // výsledek se pamatuje, ať se to při každém překreslení nedělá znovu.
+  //
+  // Ptá se `fs.exists`, ne handle API: `getFileHandle` v tomhle mostu chybějící
+  // soubor neodmítne, takže by ❓ svítilo u každého adresáře. Ověřeno na
+  // adresáři, který nápovědu nemá a tlačítko dostal.
+  function dirHelpName(dirName, absDir) {
+    if (Object.prototype.hasOwnProperty.call(dirHelpCache, absDir))
+      return Promise.resolve(dirHelpCache[absDir]);
+    return window.__chromaReady.then(function (fs) {
+      if (!fs || !fs.exists) return null;
+      return new Promise(function (resolve) {
+        var md = dirName + '.help.md', html = dirName + '.help.html';
+        fs.exists(absDir + '/' + md, function (okMd) {
+          if (okMd) return resolve(md);
+          fs.exists(absDir + '/' + html, function (okHtml) {
+            resolve(okHtml ? html : null);
+          });
+        });
+      });
+    }).catch(function () { return null; }).then(function (found) {
+      dirHelpCache[absDir] = found || null;
+      return dirHelpCache[absDir];
+    });
+  }
+
   function makeEntry(e) {
     var d = document.createElement('div');
     d.className = 'entry ' + e.kind;
     d.dataset.kind = e.kind;
     d.dataset.name = e.name;
     var ico = document.createElement('span'); ico.className = 'ico';
+    // Help wears the same mark as the button that opens it, so a tree with
+    // help in it says so in the listing.
     ico.textContent = e.kind === 'directory' ? '📁'
+                   : /\.help\.(md|html)$/i.test(e.name) ? '❓'
+                   : /\.exe\.html?$/i.test(e.name) ? '⚡'
                    : /\.html?$/i.test(e.name) ? '🟩'
-                   : /\.t2l$/i.test(e.name)   ? '🔵'
+                   : /\.t2l$/i.test(e.name)   ? '🆃'
+                   : /\.py$/i.test(e.name)    ? '🐍'
+                   : /\.(png|jpe?g|webp|gif|svg)$/i.test(e.name) ? '🖼️'
                    : '📄';
-    var nm  = document.createElement('span'); nm.textContent = e.name;
+    var nm  = el('span', 'nm', e.name);
     d.appendChild(ico); d.appendChild(nm);
+    // Repo jako v dirview (CPPBROWSE): 🈴 C++ knihovna, 🅰️ appka, 🟥 ostatni.
+    var cf = window.__chroma && window.__chroma.fs;
+    if (e.kind === 'directory' && e._path && cf && cf.repoKind) {
+      cf.repoKind(e._path, function (kind) {
+        if (!kind) return;
+        ico.textContent = kind === 'cpp' ? '🈴' : kind === 'app' ? '🅰️' : '🟥';
+        nm.classList.add('repo');
+      });
+    }
     return d;
   }
 
@@ -554,31 +679,7 @@ ChromaHandle.prototype.createWritable = function () {
       $list.appendChild($c);
     }
 
-    if (subPanelMode === 'hotdirs') {
-      HOTDIRS.forEach(function (hd) {
-        var label = hd.split('/').filter(Boolean).pop();
-        var $a = el('a', 'hotdir', '📁 ' + label);
-        $a.title = hd;
-        var inRoot = (hd === rootAbsPath) || (hd.indexOf(rootAbsPath + '/') === 0);
-        if (!inRoot) {
-          $a.classList.add('disabled');
-          $a.title = hd + ' (outside root — N/A)';
-        } else {
-          $a.addEventListener('click', function () {
-            var rel = hd === rootAbsPath ? '' : hd.slice(rootAbsPath.length + 1);
-            path = rel ? rel.split('/') : [];
-            parentPage = 0; activePage = 0;
-            filterText = '';
-            subPanelMode = null;
-            $subPanel.hidden = true;
-            render();
-            writeState();
-          });
-        }
-        $list.appendChild($a);
-      });
-      addClose();
-    } else if (subPanelMode === 'roots') {
+    if (subPanelMode === 'roots') {
       dbGetRoots().then(function (roots) {
         if (!roots.length) {
           $list.appendChild(el('span', null, '(no saved roots)'));
@@ -664,14 +765,14 @@ ChromaHandle.prototype.createWritable = function () {
     var pActive = resolveAt(rootHandle, activePath);
 
     // ===== Control-bar (filter) — společný pruh nad oběma sloupci =====
-    // Note: "up" button removed — ai.t2ls Qt toolbar provides ⬅ dir-up.
+    // Note: "up" button removed - the Qt toolbar provides ⬅ dir-up.
     $controlBar.innerHTML = '';
 
-    // refresh button removed — ai.t2ls Qt toolbar provides 🔄 reload.
+    // refresh button removed - the Qt toolbar provides 🔄 reload.
 
     // hotdirs button removed — replaced by bookmarks in parent (L) panel.
 
-    // copy-path button removed — ai.t2ls infoBar provides 📋 copy per label.
+    // copy-path button removed - the info bar provides 📋 copy per label.
 
     // 🗑 delete-selected — trashes selectedPath (or active dir if none),
     // disabled when there's nothing meaningful to delete.
@@ -684,8 +785,8 @@ ChromaHandle.prototype.createWritable = function () {
         ? rootAbsPath + '/' + selectedPath
         : (path.length ? rootAbsPath + '/' + path.join('/') : null);
       $delBtn.disabled = !target;
-      $delBtn.title    = target ? 'Přesunout do koše: ' + target
-                                 : 'Nic vybráno k odstranění';
+      $delBtn.title    = target ? 'Move to trash: ' + target
+                                 : 'Nothing selected to delete';
     }
     refreshDelBtn();
     $delBtn.addEventListener('click', function () {
@@ -694,14 +795,14 @@ ChromaHandle.prototype.createWritable = function () {
         : (path.length ? rootAbsPath + '/' + path.join('/') : null);
       if (!target) return;
       var isFile = !!selectedPath;
-      var label  = isFile ? 'soubor „' : 'adresář „';
+      var label  = isFile ? 'file „' : 'directory „';
       var name   = isFile ? selectedPath.split('/').pop() : path[path.length - 1];
-      if (!confirm('Přesunout ' + label + name + '" do koše?\n\n' + target))
+      if (!confirm('Move ' + label + name + '" to trash?\n\n' + target))
         return;
       window.__chromaReady.then(function (fs) {
-        if (!fs || !fs.trash) { alert('fs.trash není k dispozici — rebuild chroma.'); return; }
+        if (!fs || !fs.trash) { alert('fs.trash not available — rebuild chroma.'); return; }
         fs.trash(target, function (ok) {
-          if (!ok) { alert('Přesun do koše selhal:\n' + target); return; }
+          if (!ok) { alert('Move to trash failed:\n' + target); return; }
           if (isFile) selectedPath = null;
           else if (path.length) path.pop();
           render();
@@ -727,10 +828,16 @@ ChromaHandle.prototype.createWritable = function () {
     $frame.appendChild($inp);
     var $bd = el('button', 'tg ' + (filterDir  ? 'on' : 'off'), '📁');
     var $bf = el('button', 'tg ' + (filterFile ? 'on' : 'off'), '📄');
+    // Nápovědy jsou vidět dvakrát - jako soubor ve výpisu a jako ❓ u věci,
+    // kterou vysvětlují. Tenhle přepínač schová ten výpis; tlačítka zůstanou.
+    var $bh = el('button', 'tg ' + (showHelp ? 'on' : 'off'), '❓');
     $bd.title = 'directories'; $bf.title = 'files';
+    $bh.title = showHelp ? 'hide help files (❓ buttons stay)'
+                         : 'show help files';
     $bd.addEventListener('click', function () { filterDir  = !filterDir;  activePage = 0; render(); });
     $bf.addEventListener('click', function () { filterFile = !filterFile; activePage = 0; render(); });
-    $frame.appendChild($bd); $frame.appendChild($bf);
+    $bh.addEventListener('click', function () { showHelp   = !showHelp;   activePage = 0; render(); });
+    $frame.appendChild($bd); $frame.appendChild($bf); $frame.appendChild($bh);
     $controlBar.appendChild($frame);
     $controlBar.appendChild($delBtn);   // pushed to right by margin-left: auto
 
@@ -765,9 +872,14 @@ ChromaHandle.prototype.createWritable = function () {
       // active col — filtrované entries
       listEntries(activeH, false).then(function (es) {
         var needle = filterText.toLowerCase();
+        // Jména z celého adresáře, ne z filtrovaných - schovaná nápověda pořád
+        // musí umět rozsvítit ❓ u souboru, ke kterému patří.
+        var nameSet = {};
+        es.forEach(function (e) { nameSet[e.name] = true; });
         var filtered = es.filter(function (e) {
           if (e.kind === 'directory' && !filterDir)  return false;
           if (e.kind === 'file'      && !filterFile) return false;
+          if (e.kind === 'file' && !showHelp && isHelpName(e.name)) return false;
           if (needle && e.name.toLowerCase().indexOf(needle) === -1) return false;
           return true;
         });
@@ -784,9 +896,26 @@ ChromaHandle.prototype.createWritable = function () {
             d.dataset.cmd = isSel
               ? (e.kind === 'directory'
                  ? 'panel_show dir "' + entryAbs + '"'
-                 : 'panel_show p1 "'  + entryAbs + '"')
+                 : 'panel_show active "'  + entryAbs + '"')
               : 'preselect dir "' + entryAbs + '"';
             d.dataset.cmdNofire = '1';
+
+            // ❓ u položky, která má nápovědu. U souboru je vedle něj a víme to
+            // hned; u adresáře leží uvnitř, tak se na ni sáhne a tlačítko
+            // dorazí o chvíli později.
+            if (e.kind === 'file') {
+              if (isHelpName(e.name)) return;
+              if (/\.t2l$/i.test(e.name)) addViewerBtns(d, entryAbs);
+              var hn = helpNameFor(e.name, nameSet);
+              if (hn)
+                d.appendChild(makeHelpBtn(rootAbsPath + '/' + activePath.concat([hn]).join('/'),
+                                          'help: ' + hn));
+            } else {
+              dirHelpName(e.name, entryAbs).then(function (hn) {
+                if (!hn || !d.isConnected) return;
+                d.appendChild(makeHelpBtn(entryAbs + '/' + hn, 'help: ' + hn));
+              });
+            }
           },
           function (e) {
             // 2-stage pro OBOJÍ (file i dir):
@@ -826,7 +955,7 @@ ChromaHandle.prototype.createWritable = function () {
                        + ' write=' + (cf && typeof cf.write)
                        + ' keys=' + (cf ? Object.keys(cf).join(',') : 'null');
               if (cf && cf.write) cf.write('/tmp/dirsdiag.txt', diag);
-              if (cf && cf.exec) cf.exec('panel_show p1 "' + diskPath + '"');
+              if (cf && cf.exec) cf.exec('panel_show active "' + diskPath + '"');
               else {
                 var b = window.__chroma && window.__chroma.bus;
                 if (b && b.notifyFileSelected) b.notifyFileSelected(diskPath);
@@ -844,7 +973,7 @@ ChromaHandle.prototype.createWritable = function () {
   // Compute suggested abs path: longest common dir prefix of saved roots + handleName.
   function suggestedAbsPath(roots, handleName) {
     var paths = (roots || []).map(function (r) { return r.absPath; }).filter(Boolean);
-    if (!paths.length) return SERVER_DISK_ROOT + '/' + handleName;
+    if (!paths.length) return SERVER_DISK_ROOT ? SERVER_DISK_ROOT + '/' + handleName : '';
     var prefix = paths[0];
     for (var i = 1; i < paths.length; i++) {
       while (prefix && paths[i].indexOf(prefix) !== 0) prefix = prefix.slice(0, -1);
@@ -857,7 +986,7 @@ ChromaHandle.prototype.createWritable = function () {
       if (idx2 > 0) prefix = prefix.slice(0, idx2);
     }
     if (!prefix || prefix.charAt(0) !== '/') prefix = SERVER_DISK_ROOT;
-    return prefix + '/' + handleName;
+    return prefix ? prefix + '/' + handleName : '';
   }
 
   // Custom modal — input + live preview + must be absolute, no relative paths.
@@ -867,7 +996,7 @@ ChromaHandle.prototype.createWritable = function () {
     $box.appendChild(el('p', null, 'Absolute disk path for „' + handleName + '"'));
     $box.appendChild(el('p', 'modal-hint',
       'Browser cannot detect it — you have to type/edit it.\n' +
-      'Must be absolute (start with "/"). Example: CODE_ROOT/orders'));
+      'Must be absolute (start with "/"). Example: /home/user/projects/orders'));
     var $input = document.createElement('input');
     $input.type = 'text'; $input.placeholder = '/...';
     $box.appendChild($input);
@@ -1088,24 +1217,6 @@ ChromaHandle.prototype.createWritable = function () {
       var role = (window.__chroma && window.__chroma.role) || 'mid';
       var bus  = window.__chroma && window.__chroma.bus;
 
-      // Listen for sandbox extension — chroma widens allowedRoot at runtime
-      // (dir-up past sandbox edge). We must re-read the new root and re-init
-      // our cached rootAbsPath / rootHandle so navigation still resolves.
-      if (bus && bus.sandboxChanged && bus.sandboxChanged.connect) {
-        bus.sandboxChanged.connect(function (newRoot) {
-          if (!newRoot || newRoot === rootAbsPath) return;
-          var name = newRoot.split('/').filter(Boolean).pop() || newRoot;
-          rootHandle  = new ChromaHandle(fs, newRoot, name, true);
-          rootAbsPath = newRoot;
-          setRootInURL(newRoot);
-          // Reset navigation state — new root, no assumed path.
-          path = [];
-          parentPage = 0; activePage = 0;
-          selectedPath = null;
-          render();
-        });
-      }
-
       fs.allowedRoot(function (ap) {
         var name = ap.split('/').filter(Boolean).pop() || ap;
         var h = new ChromaHandle(fs, ap, name, true);
@@ -1116,15 +1227,15 @@ ChromaHandle.prototype.createWritable = function () {
         // Initial path from ?start= query (chroma passes this; app-provided
         // starting dir which must lie within the sandbox root).
         var startArg = new URLSearchParams(location.search).get('start');
-        if (startArg && startArg.indexOf(ap) === 0 && startArg !== ap) {
+        if (startArg && startArg.indexOf(ap + '/') === 0) {
           var rel = startArg.slice(ap.length).replace(/^\/+/, '');
           path = rel ? rel.split('/') : [];
         }
 
         showApp();
 
-        // Chroma mode: hide the whole header (👁 Iris title + root-bar + crumb)
-        // AND the overlay bar (path + zpět) — chroma's shared info bar and
+        // Chroma mode: hide the whole header (title + root-bar + crumb)
+        // AND the overlay bar (path + back) - chroma's shared info bar and
         // navigation cover both.
         var $hdr = document.querySelector('header');
         if ($hdr) $hdr.style.display = 'none';
@@ -1134,12 +1245,32 @@ ChromaHandle.prototype.createWritable = function () {
 
         // ---- role-specific wiring ----
         function absToRelPath(abs) {
-          if (!abs || !abs.indexOf(rootAbsPath) === 0) return [];
+          if (!abs || (abs !== rootAbsPath && abs.indexOf(rootAbsPath + '/') !== 0)) return [];
           var rel = abs.slice(rootAbsPath.length).replace(/^\/+/, '');
           return rel ? rel.split('/') : [];
         }
         function currentAbsDir() {
           return rootAbsPath + (path.length ? '/' + path.join('/') : '');
+        }
+
+        // Listen for sandbox extension — chroma widens allowedRoot at runtime
+        // (dir-up past sandbox edge, chroma_setdir outside). Re-init the cached
+        // rootAbsPath / rootHandle so navigation still resolves.
+        if (bus && bus.sandboxChanged && bus.sandboxChanged.connect) {
+          bus.sandboxChanged.connect(function (newRoot) {
+            if (!newRoot || newRoot === rootAbsPath) return;
+            var abs = currentAbsDir();
+            var name = newRoot.split('/').filter(Boolean).pop() || newRoot;
+            rootHandle  = new ChromaHandle(fs, newRoot, name, true);
+            rootAbsPath = newRoot;
+            setRootInURL(newRoot);
+            // Same dir, new root: re-express the path so the widening itself
+            // publishes nothing - the dirChanged that follows says where to go.
+            path = absToRelPath(abs);
+            parentPage = 0; activePage = 0;
+            selectedPath = null;
+            render();
+          });
         }
 
         if (role === 'mid') {
@@ -1158,7 +1289,7 @@ ChromaHandle.prototype.createWritable = function () {
               lastPubDir = abs;
               bus.notifyDirChange(abs);
               // Also publish as user's active selection — mid navigation is
-              // an explicit user act, Karel should see it as selected dir.
+              // an explicit user act, the agent should see it as the selected dir.
               if (fs && fs.setSelectedDir) fs.setSelectedDir(abs);
             }
             var fileAbs = selectedPath ? (rootAbsPath + '/' + selectedPath) : null;
@@ -1223,11 +1354,17 @@ ChromaHandle.prototype.createWritable = function () {
           if ($controlBar) $controlBar.style.display = 'none';
           // Main.cpp may load us with ?file=<path> — show that on init.
           var fileArg = new URLSearchParams(location.search).get('file');
-          if (fileArg) showOverlay('file://' + fileArg, fileArg);
+          // A path is not a URL - the host says which. Qt loads us off the
+          // disk, so there it is file://; a host serving us over http differs.
+          var toUrl = function (p) {
+            return (window.__chroma && window.__chroma.fileUrl)
+              ? window.__chroma.fileUrl(p) : 'file://' + p;
+          };
+          if (fileArg) showOverlay(toUrl(fileArg), fileArg);
           if (bus && bus.fileSelected && bus.fileSelected.connect) {
             bus.fileSelected.connect(function (fileAbs) {
               if (!fileAbs) return;
-              showOverlay('file://' + fileAbs, fileAbs);
+              showOverlay(toUrl(fileAbs), fileAbs);
             });
           }
         }
@@ -1260,8 +1397,8 @@ ChromaHandle.prototype.createWritable = function () {
 </script>
 
 <script>
-// Bootstrap: load TREE/.t2l/common.js via fs bridge (relative path won't work
-// — dirs.html lives in different dir). Eval in global scope → window.__cmdTools.
+// Bootstrap: load <root>/.t2l/common.js via fs bridge (relative path won't work
+// - dirs.html lives in a different dir). Eval in global scope → window.__cmdTools.
 (function () {
   function boot(fs) {
     fs.allowedRoot(function (root) {

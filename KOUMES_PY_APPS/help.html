@@ -1,0 +1,118 @@
+<!doctype html>
+<!--
+Copyright (C) 2026 Petr Talla. [petr.talla@gmail.com]
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+          http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>koumes Help</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 20px 24px;
+         font: 14px/1.55 system-ui, sans-serif; color: #111827;
+         background: #f6f7f9; }
+  h2 { font-size: 20px; margin: 22px 0 10px; color: #111827;
+       font-weight: 700; }
+  h2:first-of-type { margin-top: 0; }
+  table.legend { border-collapse: collapse; width: 100%; max-width: 480px;
+                 background: #fff; border: 1px solid #e5e7eb; border-radius: 6px;
+                 overflow: hidden; }
+  table.legend td { padding: 6px 12px; border-top: 1px solid #f1f2f4;
+                    font-size: 13px; vertical-align: baseline; }
+  table.legend tr:first-child td { border-top: 0; }
+  table.legend td.ico { width: 36px; text-align: center; font-size: 18px; }
+  table.legend td.desc { color: #374151; }
+  table.legend td.desc code { background: #f1f5f9; padding: 1px 5px;
+                              border-radius: 3px; font-size: 12px; color: #1e40af; }
+  ul.ctrl { margin: 6px 0; padding-left: 20px; }
+  ul.ctrl li { margin: 3px 0; }
+  ul.ctrl code { background: #f1f5f9; padding: 1px 6px; border-radius: 3px;
+                 font-size: 12px; color: #1e40af; }
+  .foot { margin-top: 28px; color: #9ca3af; font-size: 12px;
+          border-top: 1px solid #e5e7eb; padding-top: 12px; }
+</style>
+</head>
+<body>
+
+<h1 style="margin: 0 0 12px;">koumes.com</h1>
+<img src="../resource/helix_nebula.png" alt="Helix Nebula"
+     style="display: block; margin: 0 0 16px; max-height: 350px;
+            border-radius: 15%;
+            -webkit-mask-image: radial-gradient(ellipse at center, black 50%, transparent 100%);
+            mask-image: radial-gradient(ellipse at center, black 50%, transparent 100%);">
+
+<h2>Icons</h2>
+<table class="legend">
+  <tr><td class="ico">📁</td><td class="desc">directory</td></tr>
+  <tr><td class="ico">🟩</td><td class="desc">HTML file <code>.html</code> / <code>.htm</code></td></tr>
+  <tr><td class="ico">📄</td><td class="desc">other file</td></tr>
+</table>
+
+<h2>Controls</h2>
+<ul class="ctrl">
+  <li>Click on a <b>directory</b> - descend into it</li>
+  <li>Click on a <b>file</b> - open it in the right detail panel</li>
+  <li>Breadcrumb bar at the top - jump back any number of levels</li>
+  <li>Filter input - filter directory contents; <code>^</code> = hot dirs only</li>
+</ul>
+
+<h2>Chroma toolbar (above the panels)</h2>
+<ul class="ctrl">
+  <li><code>◀ / ▶</code> - hide/show the parent panel</li>
+  <li><code>📁 fm</code> - open the current dir in the file manager</li>
+  <li><code>custom / default</code> - viewer switch (for a dir with a registered <code>type: viewer</code>)</li>
+  <li><code>🔗 links</code> - list the bidirectional <code>[[id]]</code> links of the current file</li>
+</ul>
+
+<h2>Control-bar (in the dir panel)</h2>
+<ul class="ctrl">
+  <li><code>← back</code> - one level up</li>
+  <li><code>🔄 refresh</code> - reload the list</li>
+  <li><code>🔥 hot</code> - anchors / favourite dirs</li>
+  <li><code>📋 copy</code> - copy the absolute path (selected file or current dir)</li>
+  <li><code>🗑 delete</code> - move to trash (<code>gio trash</code>, reversible). Target: selected file, or the current dir when nothing is selected.</li>
+  <li><code>filter</code> - text filter; <code>D</code>/<code>F</code> toggle dirs/files</li>
+</ul>
+
+<h2>Info bar (dark stripe)</h2>
+<ul class="ctrl">
+  <li>Top line (left) - <b>path</b> (dir or file, relative to the nearest <code>index.t2l</code>)</li>
+  <li>Bottom line (right) - <b>viewer</b> (the HTML that renders it); <code>NATIVE</code> = the browser renders <code>.html</code> directly, without a viewer wrapper</li>
+</ul>
+
+<h2>WS commands (via <code>websocat ws://127.0.0.1:54325</code>)</h2>
+<ul class="ctrl">
+  <li><code>chroma_dir</code> / <code>chroma_file</code> - current dir/file. <b>Selected</b> (via <code>fs.setSelectedDir/File</code>) takes precedence over viewed.</li>
+  <li><code>chroma_dir_viewer</code> / <code>chroma_file_viewer</code> - the HTML that renders the current dir/file</li>
+  <li><code>chroma_setdir &lt;path&gt;</code> - navigate the mid panel</li>
+  <li><code>chroma_openfm</code> - file manager on the current dir</li>
+  <li><code>chroma_reload</code> - reload mid page (F5 equivalent)</li>
+  <li><code>chroma_selection</code> - last DOM selection (JSON)</li>
+  <li><code>chroma_style "&lt;css&gt;"</code> / <code>chroma_class "&lt;cls&gt;"</code> / <code>chroma_unwrap</code> - style/class/unwrap current DOM selection</li>
+</ul>
+
+<h2>Bidirectional links <code>[[id]]</code></h2>
+<ul class="ctrl">
+  <li>Anywhere in an attribute value → chroma detects them, a click walks up looking for the nearest <code>index.t2l</code>, resolves <code>type[id]file</code>, opens the target</li>
+  <li>Back-link: convention <code>usedIn: [[&lt;other_id&gt;]]</code> on the target record</li>
+</ul>
+
+<div class="foot">
+  Source: <code>dirview/help.html</code>
+</div>
+
+</body>
+</html>

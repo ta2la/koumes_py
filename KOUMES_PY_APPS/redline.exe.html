@@ -1,0 +1,815 @@
+<!doctype html>
+<!--
+Copyright (C) 2026 Petr Talla. [petr.talla@gmail.com]
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+          http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>redline viewer</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden;
+               background: #1f2937; color: #e5e7eb;
+               font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #stage { position: absolute; inset: 0; display: flex;
+           align-items: center; justify-content: center; overflow: hidden; }
+  #holder { position: relative; line-height: 0; }
+  #pic { display: block; max-width: 100%; max-height: 100%;
+         user-select: none; -webkit-user-drag: none; }
+  #ink { position: absolute; left: 0; top: 0; cursor: crosshair; }
+  #bar { position: absolute; top: 8px; right: 8px; z-index: 5;
+         display: flex; gap: 6px; align-items: center;
+         background: rgba(17, 24, 39, .82); border: 1px solid #4b5563;
+         border-radius: 4px; padding: 4px 6px; }
+  #bar button { font: 700 11px ui-monospace, monospace; color: #e5e7eb;
+                background: #374151; border: 1px solid #6b7280;
+                border-radius: 3px; padding: 2px 8px; cursor: pointer; }
+  #bar button:hover { background: #4b5563; color: #fff; }
+  #bar button#save { background: #6d28d9; border-color: #a855f7; }
+  #bar button#save:hover { background: #7c3aed; }
+  /* The mode buttons are one control, so they sit flush and only the group has
+     outer corners. Active mode uses the same violet as save - it is the accent
+     colour of this viewer and there is no second meaning to confuse it with. */
+  #modes { display: flex; margin-right: 2px; }
+  #modes button { border-radius: 0; border-right-width: 0; }
+  #modes button:first-child { border-radius: 3px 0 0 3px; }
+  #modes button:last-child { border-radius: 0 3px 3px 0; border-right-width: 1px; }
+  #modes button.on { background: #6d28d9; border-color: #a855f7; color: #fff; }
+  /* Okýnko právě zvoleného příkazu - jedno na příkaz, visí pod lištou a
+     s jiným příkazem zmizí. V liště zůstává jen to, co platí pořád (undo,
+     clear, save); co je vlastní jednomu kreslení, patří sem. Přidat příkazu
+     ovládání znamená přidat další `div.sub` s jeho `data-for`, ne rozšiřovat
+     lištu. Dnes ho má jen `label`. */
+  /* Okýnko právě zvoleného příkazu. Nikdy nemizí: něco je vždycky zvolené a
+     tohle je jediné místo, kde je to napsané slovem. Příkaz bez vlastního
+     nastavení tu má jen titulek - i to je informace. */
+  /* Bílé okno s vlastním rámem, ne proužek v liště. Má svoji velikost -
+     100x80 - a obsah se do ní vejde; když se nevejde, okno se roztáhne,
+     nikdy se nezmenší pod ni. Tím drží tvar i pro příkaz, který uvnitř nemá
+     nic, a nepřeskakuje při každém přepnutí. */
+  #sub { position: absolute; top: 48px; right: 8px; z-index: 5;
+         min-width: 100px; min-height: 80px;
+         display: flex; flex-direction: column;
+         background: #f9fafb; color: #1f2937;
+         border: 1px solid #374151; border-radius: 4px; overflow: hidden;
+         box-shadow: 0 2px 8px rgba(0, 0, 0, .35); }
+  .sub-body[hidden] { display: none; }
+  /* Titulek přes celou šířku, ovládání pod ním - okýnko, ne další lišta.
+     Podle titulku je vidět, čí to je, i když se člověk kouká jen na něj. */
+  .sub-tit { display: block; background: #6d28d9; color: #fff;
+             font: 700 10px ui-monospace, monospace; letter-spacing: 1px;
+             padding: 3px 6px; text-align: center; }
+  .sub-body { display: flex; flex-direction: column; gap: 5px; padding: 6px; }
+  /* Uvnitř je bílo, takže tmavé ovládání z lišty by tu svítilo jako díra. */
+  .sub-body #seed { width: 100%; background: #fff; color: #1f2937;
+                    border: 1px solid #9ca3af; font-size: 11px; padding: 2px; }
+  .sub-body button { width: 100%; font: 700 11px ui-monospace, monospace;
+                     background: #e5e7eb; color: #1f2937;
+                     border: 1px solid #9ca3af; border-radius: 3px;
+                     padding: 2px 6px; cursor: pointer; }
+  .sub-body button:hover { background: #ddd6fe; border-color: #6d28d9; }
+  /* Příkazy, které nekreslí a nepatří žádnému režimu. V liště zabíraly místo
+     pořád, přitom se sahá po `save` jednou za sezení - proto pod hamburger.
+     `save` je první: je to jediný z nich, kvůli kterému se sem chodí. */
+  #menu { position: absolute; top: 48px; right: 8px; z-index: 6;
+          display: flex; flex-direction: column; gap: 5px; min-width: 100px;
+          background: #f9fafb; border: 1px solid #374151; border-radius: 4px;
+          padding: 6px; box-shadow: 0 2px 8px rgba(0, 0, 0, .35); }
+  #menu[hidden] { display: none; }
+  #menu button { width: 100%; font: 700 11px ui-monospace, monospace;
+                 background: #e5e7eb; color: #1f2937; border: 1px solid #9ca3af;
+                 border-radius: 3px; padding: 3px 6px; cursor: pointer; }
+  #menu button:hover { background: #ddd6fe; border-color: #6d28d9; }
+  #menu button#save { background: #6d28d9; border-color: #4c1d95; color: #fff; }
+  #menu button#save:hover { background: #7c3aed; }
+  #count { color: #c4b5fd; padding-right: 2px; }
+  #seed { width: 36px; font: 700 11px ui-monospace, monospace; color: #e5e7eb;
+          background: #111827; border: 1px solid #6b7280; border-radius: 3px;
+          padding: 2px 4px; text-align: center; }
+  #hint { position: absolute; left: 8px; bottom: 8px; z-index: 5;
+          color: #9ca3af; background: rgba(17, 24, 39, .82);
+          border-radius: 3px; padding: 3px 7px; }
+  #hint b { color: #c4b5fd; font-weight: 700; }
+  #err { padding: 16px; color: #fca5a5; }
+  .saving { color: #fbbf24 !important; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <span id="count">0</span>
+  <span id="modes">
+    <button id="m-rect" class="on" title="Drag with mouse = rectangle">rect</button>
+    <button id="m-line" title="Drag with mouse = freehand line">line</button>
+    <button id="m-poly" title="Click points, right button ends the line">polyline</button>
+    <button id="m-label" title="Click = label; further clicks lead the arrow to a spot">label</button>
+    <button id="m-sel" title="Click = pick a mark, Del removes it">select</button>
+  </span>
+  <button id="ham" title="More commands">&#9776;</button>
+</div>
+
+<div id="menu" hidden>
+  <button id="save" title="Writes marks into the image; the previous version is kept as foo.copy.png">save</button>
+  <button id="undo" title="Ctrl+Z">undo</button>
+  <button id="clear" title="Delete all marks">clear</button>
+</div>
+<div id="sub">
+  <span class="sub-tit" id="sub-tit">rect</span>
+  <div class="sub-body" data-for="label" hidden>
+    <input id="seed" title="Number/letter of the next label" value="1">
+    <button id="reset" title="Ends the label and moves on to the next">reset</button>
+  </div>
+  <div class="sub-body" data-for="select" hidden>
+    <button id="del" title="Delete the selected mark (Del)">del</button>
+  </div>
+</div>
+<div id="hint"></div>
+<div id="stage"><div id="holder"><img id="pic" alt=""><canvas id="ink"></canvas></div></div>
+
+<script>
+(function () {
+  // Marks drawn over an image. Three files, on purpose:
+  //   foo.png              - the picture, overwritten by save
+  //   foo.copy.png         - what it was before the first save, i.e. the clean
+  //                          original; foo.copy01.png before the second, ...
+  //   foo.png.redline.t2l  - the markup, so it can be reopened and adjusted
+  // The sidecar is written on every change; the PNG only when save is pressed.
+  // The background loaded into the viewer is the first copy when it exists, so
+  // shapes from the sidecar do not stack on top of their own baked-in copies.
+  // Coordinates are stored as fractions of the image (0..1), not pixels, so a
+  // markup survives a differently sized window - and stays meaningful if the
+  // image itself is re-exported at another resolution. That holds for the
+  // points of a line just as it does for the corners of a rectangle.
+  const params = new URLSearchParams(location.search);
+  const file   = params.get('file');
+  const $pic   = document.getElementById('pic');
+  const $ink   = document.getElementById('ink');
+  const $count = document.getElementById('count');
+  const $hint  = document.getElementById('hint');
+  const $seed  = document.getElementById('seed');
+  const $subs  = document.querySelectorAll('.sub-body');
+  const $subT  = document.getElementById('sub-tit');
+  const $menu  = document.getElementById('menu');
+
+  if (!file) {
+    document.body.innerHTML = '<div id="err">Missing ?file= parameter.</div>';
+    return;
+  }
+  const side    = file + '.redline.t2l';
+  const sideOld = file + '.redline.json';   // pre-t2l markup, read-only
+
+  const STROKE = 'rgba(168, 85, 247, 0.85)';   // fialová
+  const FILL   = 'rgba(168, 85, 247, 0.10)';
+  const SEL    = 'rgba(251, 191, 36, 0.95)';   // jantarová - jen výběr na plátně
+  const WIDTH  = 4;
+
+  // Kliknout přesně na čáru nejde, tak má výběr toleranci; je to zlomek
+  // rozměru obrázku, stejně jako souřadnice samotné.
+  const NEAR = 0.012;
+
+  // A click without a drag must not leave an invisible speck in the sidecar
+  // that only undo could explain. Same threshold for both meanings: the short
+  // side of a rectangle, and the step between two recorded freehand points.
+  const MIN = 0.004;
+
+  let shapes  = [];      // committed: {type:'rect',x,y,w,h} | {type:'line'|'polyline',points:[{x,y}]}
+  let draft   = null;    // shape under the mouse right now (rect / freehand)
+  let pending = null;    // polyline being clicked out, not committed yet
+  let cursor  = null;    // last known pointer, for the polyline rubber band
+  let mode    = 'rect';
+  let label   = null;    // popiska rozdělaná klikáním: {type:'label',text,points}
+  let picked  = -1;      // index vybrané značky v `shapes`, jinak -1
+  let hover   = null;    // kurzor nad obrázkem, dokud popiska nemá první bod
+  let fs = null;
+
+  // The picture is set once the bridge tells us which file to load: it may be
+  // `file` itself, or `file + '.orig'` if a save has already baked shapes in.
+
+  // ---- painting ---------------------------------------------------------
+  function fit() {
+    // Canvas covers exactly the rendered image box; the backing store is in
+    // device pixels so the strokes stay sharp on a hidpi screen.
+    const w = $pic.clientWidth, h = $pic.clientHeight;
+    if (!w || !h) return;
+    const dpr = window.devicePixelRatio || 1;
+    $ink.style.width = w + 'px';
+    $ink.style.height = h + 'px';
+    $ink.width  = Math.round(w * dpr);
+    $ink.height = Math.round(h * dpr);
+    draw();
+  }
+
+  // One painter for canvas and for export, so the preview cannot drift from
+  // the PNG. Caller supplies the pixel box; everything else is the same.
+  // Plná šipka na konci vodicí čáry - popiska ukazuje na místo, tak musí být
+  // vidět, který konec je ten ukazující.
+  function arrow(ctx, from, to, width) {
+    const dx = to.x - from.x, dy = to.y - from.y;
+    const len = Math.hypot(dx, dy);
+    if (!len) return;
+    const ux = dx / len, uy = dy / len;
+    const a = Math.max(11, width * 4);     // délka hrotu
+    const b = a * 0.45;                    // půlka jeho šířky
+    ctx.beginPath();
+    ctx.moveTo(to.x, to.y);
+    ctx.lineTo(to.x - ux * a - uy * b, to.y - uy * a + ux * b);
+    ctx.lineTo(to.x - ux * a + uy * b, to.y - uy * a - ux * b);
+    ctx.closePath();
+    ctx.fill();
+    // Bílý lem: hrot končí zrovna na tom, na co ukazuje, a to bývá tmavé nebo
+    // pestré. Bez lemu se do toho slije zrovna ta špička, která nese význam.
+    const prevS = ctx.strokeStyle, prevW = ctx.lineWidth;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = Math.max(1.5, width * 0.5);
+    ctx.stroke();
+    ctx.strokeStyle = prevS;
+    ctx.lineWidth = prevW;
+  }
+
+  // Popiska sedí v plném kolečku, ne jen jako text - přes fotku by holé číslo
+  // zaniklo. Poloměr jde od tloušťky čáry, takže export ve vlastním rozlišení
+  // vypadá stejně jako náhled.
+  function badge(ctx, at, text, width) {
+    const r = Math.max(12, width * 3.12);
+    ctx.beginPath();
+    ctx.arc(at.x, at.y, r, 0, Math.PI * 2);
+    ctx.fill();
+    // Bílý lem, stejně jako u hrotu šipky: kolečko leží na obrázku, o kterém
+    // nic nevíme, a bez lemu splyne s tmavým místem zrovna tam, kde má být
+    // nejvíc vidět.
+    const prevS = ctx.strokeStyle, prevW = ctx.lineWidth;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = Math.max(1.5, width * 0.5);
+    ctx.stroke();
+    ctx.strokeStyle = prevS;
+    ctx.lineWidth = prevW;
+    const prev = ctx.fillStyle;
+    ctx.fillStyle = '#ffffff';
+    // Co největší, ale ať se to do kolečka vejde: `1` unese plnou velikost,
+    // `10` nebo `aa` ne. Měří se, ne odhaduje - popiska smí být cokoli, co si
+    // člověk napíše do políčka.
+    let size = Math.round(r * 1.45);
+    ctx.font = '800 ' + size + 'px ui-monospace, monospace';
+    while (size > 6 && ctx.measureText(String(text)).width > r * 1.5) {
+      size -= 1;
+      ctx.font = '800 ' + size + 'px ui-monospace, monospace';
+    }
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(text), at.x, at.y + r * 0.05);
+    ctx.fillStyle = prev;
+  }
+
+  function paint(ctx, w, h, list, width, sel) {
+    ctx.lineWidth = width;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    for (let i = 0; i < list.length; i++) {
+      const s = list[i];
+      if (!s) continue;
+      // Výběr se jen jinak obtáhne; do exportu se `sel` neposílá, takže se
+      // jantarová barva nikdy nezapeče do obrázku.
+      const on = (i === sel);
+      ctx.strokeStyle = on ? SEL : STROKE;
+      ctx.fillStyle   = on ? SEL : FILL;
+      if (s.type === 'rect') {
+        ctx.fillStyle = on ? 'rgba(251, 191, 36, 0.14)' : FILL;
+        ctx.fillRect(s.x * w, s.y * h, s.w * w, s.h * h);
+        ctx.strokeRect(s.x * w, s.y * h, s.w * w, s.h * h);
+      } else if (s.type === 'label') {
+        const pts = s.points || [];
+        if (!pts.length) continue;
+        const px = pts.map(function (p) { return { x: p.x * w, y: p.y * h }; });
+        ctx.fillStyle = on ? SEL : STROKE;
+        if (px.length > 1) {
+          ctx.beginPath();
+          ctx.moveTo(px[0].x, px[0].y);
+          for (let j = 1; j < px.length; j++) ctx.lineTo(px[j].x, px[j].y);
+          ctx.stroke();
+          arrow(ctx, px[px.length - 2], px[px.length - 1], width);
+        }
+        badge(ctx, px[0], s.text, width);
+      } else if (s.points && s.points.length > 1) {
+        ctx.beginPath();
+        ctx.moveTo(s.points[0].x * w, s.points[0].y * h);
+        for (let j = 1; j < s.points.length; j++) {
+          ctx.lineTo(s.points[j].x * w, s.points[j].y * h);
+        }
+        ctx.stroke();
+      }
+    }
+  }
+
+  function draw() {
+    const ctx = $ink.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const w = $pic.clientWidth, h = $pic.clientHeight;
+    ctx.clearRect(0, 0, w, h);
+
+    // The pending polyline is drawn with a rubber band to the cursor, so the
+    // next segment is visible before it is committed by a click.
+    // Rozdělaná polyline i popiska se kreslí s gumovou čárou ke kurzoru, aby
+    // byl další úsek vidět dřív, než ho klik potvrdí.
+    const open = pending || label;
+    let band = null;
+    if (open && cursor) {
+      band = Object.assign({}, open, { points: open.points.concat([cursor]) });
+    }
+
+    paint(ctx, w, h, shapes.concat([draft, band || open]), WIDTH, picked);
+
+    // Náhled popisky ještě před prvním klikem. Bez něj člověk neví, co položí -
+    // ani jak velké to bude, ani jaké číslo je na řadě - a zjistí to až tím,
+    // že to položí. Průsvitné schválně: leží to na obrázku, ale ještě to tam
+    // není a nic to neuloží.
+    if (mode === 'label' && !label && hover) {
+      ctx.save();
+      ctx.globalAlpha = 0.45;
+      ctx.lineWidth = WIDTH;
+      ctx.strokeStyle = STROKE;
+      ctx.fillStyle = STROKE;
+      badge(ctx, { x: hover.x * w, y: hover.y * h }, seedText(), WIDTH);
+      ctx.restore();
+    }
+
+    $count.textContent = shapes.length + (open ? '+' : '');
+  }
+
+  // ---- input ------------------------------------------------------------
+  function at(ev) {
+    const b = $ink.getBoundingClientRect();
+    return {
+      x: Math.min(1, Math.max(0, (ev.clientX - b.left) / b.width)),
+      y: Math.min(1, Math.max(0, (ev.clientY - b.top) / b.height))
+    };
+  }
+
+  function far(a, b) {
+    // Freehand would otherwise record a point per mouse event, which bloats the
+    // sidecar and gains nothing - the extra points are below a pixel apart.
+    return Math.abs(a.x - b.x) > MIN || Math.abs(a.y - b.y) > MIN;
+  }
+
+  let anchor = null;
+  $ink.addEventListener('mousedown', function (ev) {
+    if (ev.button !== 0) return;
+    ev.preventDefault();
+    const p = at(ev);
+    if (mode === 'select') { picked = hit(p); draw(); return; }
+    if (mode === 'label') {
+      // První klik položí popisku. Každý další je bod vodicí čáry - dokud se
+      // nedá `reset`, pořád se kreslí ta samá popiska.
+      if (label) label.points.push(p);
+      else label = { type: 'label', text: seedText(), points: [p] };
+      cursor = p;
+      draw();
+      return;
+    }
+    if (mode === 'polyline') {
+      if (pending) pending.points.push(p);
+      else pending = { type: 'polyline', points: [p] };
+      cursor = p;
+      draw();
+      return;
+    }
+    anchor = p;
+    draft = (mode === 'line')
+      ? { type: 'line', points: [p] }
+      : { type: 'rect', x: p.x, y: p.y, w: 0, h: 0 };
+    draw();
+  });
+
+  // Náhled sleduje kurzor jen nad plátnem; venku by ukazoval na místo, kam
+  // klik stejně nedosáhne.
+  $ink.addEventListener('mousemove', function (ev) {
+    if (mode !== 'label' || label) return;
+    hover = at(ev);
+    draw();
+  });
+  $ink.addEventListener('mouseleave', function () {
+    if (!hover) return;
+    hover = null;
+    draw();
+  });
+
+  window.addEventListener('mousemove', function (ev) {
+    const p = at(ev);
+    if (pending || label) { cursor = p; draw(); return; }
+    if (!anchor) return;
+    if (mode === 'line') {
+      const pts = draft.points;
+      if (far(pts[pts.length - 1], p)) pts.push(p);
+    } else {
+      draft = {
+        type: 'rect',
+        x: Math.min(anchor.x, p.x), y: Math.min(anchor.y, p.y),
+        w: Math.abs(p.x - anchor.x), h: Math.abs(p.y - anchor.y)
+      };
+    }
+    draw();
+  });
+
+  window.addEventListener('mouseup', function () {
+    if (!anchor) return;
+    anchor = null;
+    const s = draft;
+    draft = null;
+    if (s && s.type === 'rect' && s.w > MIN && s.h > MIN) commit(s);
+    else if (s && s.type === 'line' && s.points.length > 1) commit(s);
+    draw();
+  });
+
+  // Right button ends the current polyline. Bound on the document, not on the
+  // canvas: while clicking out a line it is easy to land just off the image,
+  // and there the menu would open on top of the drawing and swallow the
+  // gesture. This is a drawing surface, the context menu has nothing to offer.
+  document.addEventListener('contextmenu', function (ev) {
+    ev.preventDefault();
+    endPending();
+    endLabel();
+  });
+
+  function commit(s) { shapes.push(s); save(); }
+
+  function endPending() {
+    if (!pending) return;
+    const p = pending;
+    pending = null;
+    if (p.points.length > 1) commit(p);   // a single click is not a line
+    draw();
+  }
+
+  // Popiska bez vodicí čáry je platná - je to prostě číslo položené na místo.
+  // Proto se tu na rozdíl od polyline nezahazuje ani jediný bod.
+  function endLabel() {
+    if (!label) return;
+    const l = label;
+    label = null;
+    commit(l);
+    $seed.value = nextLabel(l.text);
+    draw();
+  }
+
+  function seedText() {
+    return ($seed.value || '').trim() || '1';
+  }
+
+  // 1 → 2, a → b, z → aa. Cokoli jiného (třeba `A1`) se nechá být: uživatel si
+  // to napsal schválně a přepisovat mu to není co.
+  function nextLabel(t) {
+    if (/^\d+$/.test(t)) return String(parseInt(t, 10) + 1);
+    if (/^[a-z]+$/.test(t)) return bump(t, 97);
+    if (/^[A-Z]+$/.test(t)) return bump(t, 65);
+    return t;
+  }
+
+  function bump(t, base) {
+    const a = t.split('');
+    let i = a.length - 1;
+    for (;;) {
+      const c = a[i].charCodeAt(0) - base + 1;
+      if (c < 26) { a[i] = String.fromCharCode(base + c); break; }
+      a[i] = String.fromCharCode(base);
+      if (--i < 0) { a.unshift(String.fromCharCode(base)); break; }
+    }
+    return a.join('');
+  }
+
+  // ---- select / del -----------------------------------------------------
+  function segDist(p, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len2 = dx * dx + dy * dy;
+    let t = len2 ? ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+  }
+
+  function hit(p) {
+    // Pozdější značky leží nahoře, tak se hledá odzadu - trefí se ta, kterou
+    // uživatel vidí navrchu.
+    for (let i = shapes.length - 1; i >= 0; i--) {
+      const s = shapes[i];
+      if (!s) continue;
+      if (s.type === 'rect') {
+        if (p.x >= s.x - NEAR && p.x <= s.x + s.w + NEAR &&
+            p.y >= s.y - NEAR && p.y <= s.y + s.h + NEAR) return i;
+        continue;
+      }
+      const pts = s.points || [];
+      if (!pts.length) continue;
+      if (Math.hypot(p.x - pts[0].x, p.y - pts[0].y) < NEAR * 2) return i;
+      for (let j = 1; j < pts.length; j++) {
+        if (segDist(p, pts[j - 1], pts[j]) < NEAR) return i;
+      }
+    }
+    return -1;
+  }
+
+  function del() {
+    if (picked < 0 || picked >= shapes.length) { note('nothing selected', true); return; }
+    shapes.splice(picked, 1);
+    picked = -1;
+    save();
+    draw();
+  }
+
+  // ---- buttons ----------------------------------------------------------
+  const MODES = { 'm-rect': 'rect', 'm-line': 'line', 'm-poly': 'polyline',
+                  'm-label': 'label', 'm-sel': 'select' };
+  const HINTS = {
+    rect:     'drag with mouse = rectangle · <b>Ctrl+Z</b> undo · <b>save</b> writes marks (previous version as <b>.copy</b>)',
+    line:     'drag with mouse = freehand line · <b>Ctrl+Z</b> undo · <b>save</b> writes marks (previous version as <b>.copy</b>)',
+    polyline: 'click points · <b>right button</b> ends the line · <b>Esc</b> discards the current one',
+    label:    'click = label · further clicks lead the arrow · <b>reset</b> ends it and moves on · <b>Esc</b> discards',
+    select:   'click = pick a mark · <b>Del</b> or <b>del</b> removes it'
+  };
+
+  function setMode(m) {
+    // A half-drawn polyline is deliberate work, so switching mode keeps it
+    // rather than dropping it silently. Esc is the way to throw it away.
+    endPending();
+    endLabel();
+    hover = null;
+    if (m !== 'select') picked = -1;
+    mode = m;
+    for (const id in MODES) {
+      document.getElementById(id).classList.toggle('on', MODES[id] === m);
+    }
+    // Titulek okýnka je vždycky jméno zvoleného příkazu; tělo si o sebe řekne
+    // samo, přes `data-for`. Přidat příkazu nastavení znamená přidat do
+    // stránky `div.sub-body` s jeho jménem - tady se nic nemění.
+    $subT.textContent = m;
+    $subs.forEach(function (el) { el.hidden = (el.dataset.for !== m); });
+    note(HINTS[m]);
+    draw();
+  }
+  for (const id in MODES) {
+    document.getElementById(id).addEventListener('click', function () { setMode(MODES[id]); });
+  }
+
+  function undo() {
+    // While a polyline is open, undo takes back the last click - that is the
+    // step the user just made. Only once nothing is pending does it reach for
+    // the last finished shape.
+    if (label) {
+      label.points.pop();
+      if (!label.points.length) label = null;
+    } else if (pending) {
+      pending.points.pop();
+      if (!pending.points.length) pending = null;
+    } else if (shapes.length) {
+      if (picked === shapes.length - 1) picked = -1;
+      shapes.pop();
+      save();
+    }
+    draw();
+  }
+
+  document.addEventListener('keydown', function (ev) {
+    if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'z') {
+      ev.preventDefault(); undo();
+    } else if (ev.key === 'Escape' && !$menu.hidden) {
+      ev.preventDefault(); closeMenu();
+    } else if (ev.key === 'Escape' && (pending || label || picked >= 0)) {
+      ev.preventDefault(); pending = null; label = null; picked = -1; draw();
+    } else if ((ev.key === 'Delete' || ev.key === 'Backspace') && picked >= 0 &&
+               ev.target !== $seed) {
+      ev.preventDefault(); del();
+    }
+  });
+
+  // Menu se zavře, jakmile z něj něco vyjde - kdo klikl na `save`, ten už
+  // nechce koukat na seznam, chce vidět obrázek.
+  function closeMenu() { $menu.hidden = true; }
+  document.getElementById('ham').addEventListener('click', function (ev) {
+    ev.stopPropagation();
+    $menu.hidden = !$menu.hidden;
+  });
+  $menu.addEventListener('click', function () { closeMenu(); });
+  document.addEventListener('mousedown', function (ev) {
+    if (!$menu.hidden && !$menu.contains(ev.target)) closeMenu();
+  });
+
+  document.getElementById('undo').addEventListener('click', undo);
+  document.getElementById('del').addEventListener('click', del);
+  document.getElementById('reset').addEventListener('click', endLabel);
+
+  document.getElementById('clear').addEventListener('click', function () {
+    if (!shapes.length && !pending && !label) return;
+    shapes = [];
+    pending = null;
+    label = null;
+    picked = -1;
+    save();
+    draw();
+  });
+
+  // ---- export -----------------------------------------------------------
+  // The sidecar keeps the markup editable; this is the way *out* - the picture
+  // on disk is overwritten with the composite, and what it was until now is
+  // copied aside as `foo.copy.png`, then `foo.copy01.png`... Composed at the
+  // image's own resolution, not at the size it happens to be shown at.
+  document.getElementById('save').addEventListener('click', function () {
+    if (!fs) { note('bridge not connected', true); return; }
+    const w = $pic.naturalWidth, h = $pic.naturalHeight;
+    if (!w || !h) { note('image not loaded', true); return; }
+
+    endPending();   // an open polyline would otherwise be missing from the PNG
+    endLabel();     // a rozdělaná popiska taky
+
+    const out = document.createElement('canvas');
+    out.width = w;
+    out.height = h;
+    const ctx = out.getContext('2d');
+    ctx.drawImage($pic, 0, 0, w, h);
+    // Keep the stroke as thick relative to the picture as it looks on screen.
+    const width = Math.max(WIDTH, Math.round(WIDTH * w / Math.max(1, $pic.clientWidth)));
+    paint(ctx, w, h, shapes, width);
+
+    fs.saveInPlace(file, out.toDataURL('image/png'), function (path) {
+      if (!path) { note('save se nepovedl', true); return; }
+      note('saved: <b>' + path.replace(/^.*\//, '') + '</b>');
+    });
+  });
+
+  // ---- sidecar ----------------------------------------------------------
+  function note(text, bad) {
+    $hint.innerHTML = text;
+    $hint.className = bad ? 'saving' : '';
+  }
+
+  // Markup is t2l, like everything else that carries meaning here: one record
+  // per shape, typed by what it is. A JSON blob said `{"type":"rect","x":...}`
+  // in a format nothing else in the tree reads, with no way to link back to the
+  // picture it marks up. The record's `file:` does exactly that.
+
+  // Six decimals on a 0..1 fraction is a thousandth of a pixel on a 4000px
+  // image - past that the digits only make the file harder to read.
+  function num(v) { return String(Math.round(v * 1e6) / 1e6); }
+
+  function pair(v) {
+    if (typeof v !== 'string') return null;
+    const a = v.split(',').map(function (n) { return parseFloat(n); });
+    if (a.length !== 2) return null;
+    return (isFinite(a[0]) && isFinite(a[1])) ? a : null;
+  }
+
+  function toT2l(list) {
+    const base = file.replace(/^.*\//, '');
+    const out = [
+      '#: redline markup pro ' + base,
+      '#: souradnice jsou zlomky rozmeru obrazku (0-1), ne pixely',
+      '',
+      'type: redline',
+      'file: [[file:' + base + ']]',
+      'version: 3',
+      ''
+    ];
+    for (const s of list) {
+      if (!s) continue;
+      if (s.type === 'rect') {
+        out.push('type: rectangle',
+                 'pos: '  + num(s.x) + ',' + num(s.y),
+                 'size: ' + num(s.w) + ',' + num(s.h));
+      } else if (s.type === 'label' && s.points && s.points.length) {
+        // `text:` je vlastní obsah popisky, `points:` je kotva a za ní body
+        // vodicí čáry - první bod je vždycky ta kotva.
+        out.push('type: label',
+                 'text: ' + s.text,
+                 'points: ' + s.points.map(function (p) {
+                   return num(p.x) + ',' + num(p.y);
+                 }).join(' '));
+      } else if (s.points && s.points.length) {
+        out.push('type: ' + (s.type === 'line' ? 'line' : 'polyline'),
+                 'points: ' + s.points.map(function (p) {
+                   return num(p.x) + ',' + num(p.y);
+                 }).join(' '));
+      } else {
+        continue;
+      }
+      out.push('');
+    }
+    return out.join('\n');
+  }
+
+  // Minimal t2l reader: `key: value` lines, blank line ends a record, `#:` is
+  // a comment. Repeated keys are not used here, so the last one simply wins.
+  function parseT2l(text) {
+    const records = [];
+    let cur = null;
+    for (const raw of text.split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line) { cur = null; continue; }
+      if (line.charAt(0) === '#') continue;
+      const i = line.indexOf(':');
+      if (i < 0) continue;
+      if (!cur) { cur = {}; records.push(cur); }
+      cur[line.slice(0, i).trim()] = line.slice(i + 1).trim();
+    }
+    return records;
+  }
+
+  function fromT2l(text) {
+    const out = [];
+    for (const r of parseT2l(text)) {
+      if (r.type === 'rectangle') {
+        const p = pair(r.pos), d = pair(r.size);
+        if (p && d) out.push({ type: 'rect', x: p[0], y: p[1], w: d[0], h: d[1] });
+      } else if (r.type === 'label') {
+        const pts = [];
+        for (const tok of String(r.points || '').split(/\s+/)) {
+          const a = pair(tok);
+          if (a) pts.push({ x: a[0], y: a[1] });
+        }
+        if (pts.length) out.push({ type: 'label', text: r.text || '?', points: pts });
+      } else if (r.type === 'line' || r.type === 'polyline') {
+        const pts = [];
+        for (const tok of String(r.points || '').split(/\s+/)) {
+          const a = pair(tok);
+          if (a) pts.push({ x: a[0], y: a[1] });
+        }
+        if (pts.length) out.push({ type: r.type, points: pts });
+      }
+    }
+    return out;
+  }
+
+  function save() {
+    if (!fs) return;
+    fs.write(side, toT2l(shapes), function (ok) {
+      if (!ok) note('nelze zapsat ' + side + ' (mimo sandbox?)', true);
+    });
+  }
+
+  function load() {
+    if (!fs) return;
+    fs.read(side, function (text) {
+      if (text && text.trim()) {
+        shapes = fromT2l(text);
+        draw();
+        return;
+      }
+      loadLegacy();
+    });
+  }
+
+  // Pictures marked up before the switch still have a .json next to them. It is
+  // read once and converted in memory; the file is not rewritten and not
+  // deleted here, because merely opening an image must not change the disk. The
+  // next actual edit writes the t2l and the .json is then stale - the user's to bin.
+  function loadLegacy() {
+    fs.read(sideOld, function (text) {
+      if (!text) { draw(); return; }
+      try {
+        const data = JSON.parse(text);
+        const list = (data && Array.isArray(data.shapes)) ? data.shapes
+                   : (data && Array.isArray(data.rects))
+                     ? data.rects.map(function (r) {
+                         return { type: 'rect', x: r.x, y: r.y, w: r.w, h: r.h };
+                       })
+                     : [];
+        shapes = list;
+        if (list.length) note('loaded from ' + sideOld.replace(/^.*\//, '') +
+                              ' - will save as .redline.t2l');
+      } catch (e) {
+        note('corrupted ' + sideOld, true);
+      }
+      draw();
+    });
+  }
+
+  $pic.addEventListener('load', fit);
+  $pic.addEventListener('error', function () {
+    document.body.innerHTML = '<div id="err">Cannot load image: ' + file + '</div>';
+  });
+  window.addEventListener('resize', fit);
+
+  setMode('rect');
+
+  if (window.__chroma && window.__chroma.ready) {
+    window.__chroma.ready.then(function (bridge) {
+      fs = bridge;
+      fs.origOf(file, function (bg) {
+        // A path is not a URL - the host says which: file:// in Qt, otherwise over http.
+        $pic.src = window.__chroma.fileUrl
+          ? window.__chroma.fileUrl(bg || file) : 'file://' + (bg || file);
+        load();
+      });
+    });
+  }
+})();
+</script>
+</body>
+</html>
