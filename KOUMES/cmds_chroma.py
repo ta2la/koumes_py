@@ -14,7 +14,7 @@
 # limitations under the License.
 """Cmds_chroma - CmdSys commands specific to the chroma UI.
 
-Python port of APPS/AI_T2LS/Cmds_chroma.h.
+Python port of the C++ predecessor's Cmds_chroma.h.
 """
 
 import os
@@ -45,6 +45,10 @@ class CmdsChroma:
     _detail_view: Optional[QWebEngineView] = None
     _rightmost_view: Optional[QWebEngineView] = None
     _window: Optional[QWidget] = None
+    #: p1 / p2 content hosts (qt_viewer.ViewerHost) - set when a Qt viewer
+    #: can stand where the web view is
+    _hosts: Dict[str, QWidget] = {}
+
 
     _last_dir: str = ""
     _last_file: str = ""
@@ -61,6 +65,9 @@ class CmdsChroma:
     _reload_fns: Dict[str, Callable[[], None]] = {}
     _toggle_fns: Dict[str, Callable[[], None]] = {}
     _tab_toggle_fns: Dict[str, Callable[[], None]] = {}
+    #: which document panel takes a file nobody addressed - p1 or p2
+    _active_panel: str = "p1"
+    _active_fn: Optional[Callable[[str], None]] = None
     _preselects: Dict[str, str] = {}
 
     @classmethod
@@ -86,6 +93,25 @@ class CmdsChroma:
     @classmethod
     def set_window(cls, w: QWidget) -> None:
         cls._window = w
+
+    @classmethod
+    def set_hosts(cls, p1: QWidget, p2: QWidget) -> None:
+        cls._hosts = {"p1": p1, "p2": p2}
+
+    @classmethod
+    def _qt_host(cls, args):
+        """The host of the addressed panel when it shows a Qt viewer, else None."""
+        h = cls._hosts.get("p2" if args.get_arg("p2") is not None else "p1")
+        return h if h is not None and h.is_qt() else None
+
+    @staticmethod
+    def _read_text(path: str) -> str:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return f.read()
+        except (OSError, UnicodeDecodeError):
+            return ""
+
 
     @classmethod
     def set_bus(cls, b: PanelBus) -> None:
@@ -122,6 +148,14 @@ class CmdsChroma:
     @classmethod
     def set_tab_toggle_fn(cls, panel: str, fn: Callable[[], None]) -> None:
         cls._tab_toggle_fns[panel] = fn
+
+    @classmethod
+    def set_active_fn(cls, fn: Callable[[str], None]) -> None:
+        cls._active_fn = fn
+
+    @classmethod
+    def active_panel(cls) -> str:
+        return cls._active_panel
 
     @classmethod
     def _sel_for(cls, p: str) -> Optional[PanelSel]:
@@ -239,12 +273,22 @@ class CmdsChroma:
 
         def panel_show(args, data, ctx):
             if args.count() < 3:
-                return args.append_error("panel_show: usage: panel_show <left|dir|p1|p2> <file> [<viewer>]")
+                return args.append_error(
+                    "panel_show: usage: panel_show <left|dir|p1|p2|active> <file> [<viewer>]")
             panel = args.get(1).value
             file = args.get(2).value
-            viewer = args.get(3).value if args.count() >= 4 else ""
-            if panel not in ("left", "dir", "p1", "p2"):
-                return args.append_error("panel_show: panel must be left|dir|p1|p2")
+            # Third *positional* argument. Over the WS the line carries
+            # `--USER <who>` behind the command, so index 3 is not necessarily
+            # something the caller typed - a named argument there is not a
+            # viewer name.
+            third = args.get(3) if args.count() >= 4 else None
+            viewer = third.value if third is not None and not third.name else ""
+            if panel not in ("left", "dir", "p1", "p2", "active"):
+                return args.append_error("panel_show: panel must be left|dir|p1|p2|active")
+            # `active` is not a panel, it is "whichever one is active right
+            # now" - resolved here so the log records where it really went.
+            if panel == "active":
+                panel = cls._active_panel
             if cls._bus is None:
                 return args.append_error("panel_show: bus not set")
             cls._bus.notify_panel_show(panel, file, viewer)
@@ -276,6 +320,29 @@ class CmdsChroma:
             args.append(panel, "TOGGLED")
             return 0
         sys_.add("panel_toggle", panel_toggle, category="chroma")
+
+        def panel_active(args, data, ctx):
+            """Read or set the document panel an unaddressed file opens in.
+
+            Without an argument it answers; with `p1` or `p2` it switches. The
+            same state the chip in the role bar shows and sets - a click and a
+            command are two ways to the one switch, not two switches.
+            """
+            # `args.get(1)` is not necessarily the argument the caller typed:
+            # a command that arrives over the WS carries `--USER <who>` right
+            # behind its name. A positional argument has an empty `.name`, and
+            # that is the only reliable way to tell the two apart.
+            first = args.get(1) if args.count() >= 2 else None
+            if first is not None and not first.name:
+                p = first.value
+                if p not in ("p1", "p2"):
+                    return args.append_error("panel_active: panel must be p1|p2")
+                cls._active_panel = p
+                if cls._active_fn is not None:
+                    cls._active_fn(p)
+            args.append(cls._active_panel, "ACTIVE")
+            return 0
+        sys_.add("panel_active", panel_active, category="chroma")
 
         def panel_reload(args, data, ctx):
             if args.count() < 2:
@@ -398,6 +465,8 @@ class CmdsChroma:
             path = args.get(1).value
             if not path:
                 return args.append_error("chroma_setdir: empty path")
+            if not _widen_if_needed(path):
+                return args.append_error(f"chroma_setdir: cannot widen sandbox to {path}")
             cls._bus.notify_dir_change(path)
             args.append(path, "DIR")
             return 0
@@ -405,13 +474,25 @@ class CmdsChroma:
 
         def chroma_setfile(args, data, ctx):
             if args.count() < 2:
-                return args.append_error("chroma_setfile: usage <path> [--p2]")
+                return args.append_error("chroma_setfile: usage <path> [--p1|--p2]")
             if cls._bus is None:
                 return args.append_error("chroma_setfile: bus not set")
             path = args.get(1).value
             if not path:
                 return args.append_error("chroma_setfile: empty path")
-            to_p2 = args.get_arg("p2") is not None
+            # A file outside the sandbox widens it like setdir does: the viewer
+            # would render it anyway, but its fs.write would be refused.
+            if not _widen_if_needed(os.path.dirname(os.path.abspath(path))):
+                return args.append_error(f"chroma_setfile: cannot widen sandbox to {path}")
+            # Naming a panel wins; saying nothing means the active one. So an
+            # agent that has always written `--p2` keeps getting p2, and a
+            # plain `chroma_setfile` follows the switch the user can see.
+            if args.get_arg("p2") is not None:
+                to_p2 = True
+            elif args.get_arg("p1") is not None:
+                to_p2 = False
+            else:
+                to_p2 = (cls._active_panel == "p2")
             if to_p2:
                 cls._bus.notify_file_selected_rightmost(path)
             else:
@@ -443,6 +524,11 @@ class CmdsChroma:
         sys_.add("chroma_setline", chroma_setline, category="chroma")
 
         def chroma_html(args, data, ctx):
+            h = cls._qt_host(args)
+            if h is not None:
+                # A Qt viewer has no HTML; what it shows is the file.
+                args.append(cls._read_text(h.path), "HTML")
+                return 0
             p = cls._target_page(args)
             if p is None:
                 return args.append_error("chroma_html: target page not set")
@@ -451,6 +537,10 @@ class CmdsChroma:
         sys_.add("chroma_html", chroma_html, category="chroma")
 
         def chroma_text(args, data, ctx):
+            h = cls._qt_host(args)
+            if h is not None:
+                args.append(cls._read_text(h.path), "TEXT")
+                return 0
             p = cls._target_page(args)
             if p is None:
                 return args.append_error("chroma_text: target page not set")
@@ -461,7 +551,7 @@ class CmdsChroma:
         def chroma_screenshot(args, data, ctx):
             if args.count() < 2:
                 return args.append_error("chroma_screenshot: usage <path> [--p2]")
-            v = cls._target_view(args)
+            v = cls._qt_host(args) or cls._target_view(args)
             if v is None:
                 return args.append_error("chroma_screenshot: target view not set")
             path = args.get(1).value
@@ -473,11 +563,15 @@ class CmdsChroma:
         sys_.add("chroma_screenshot", chroma_screenshot, category="chroma")
 
         def chroma_window(args, data, ctx):
-            if args.count() < 2:
+            # Same trap as panel_active: `--USER <who>` can sit at index 1, and
+            # taking its value blindly used to save the snapshot to a file
+            # named after the user. Only a positional argument is the path.
+            first = args.get(1) if args.count() >= 2 else None
+            if first is None or first.name:
                 return args.append_error("chroma_window: usage <path>")
             if cls._window is None:
                 return args.append_error("chroma_window: main window not set")
-            path = args.get(1).value
+            path = first.value
             # Qt renders the widget itself, so this works under Wayland where
             # X11 grabbers (import, xwd) cannot reach the window at all.
             px = cls._window.grab()
@@ -487,13 +581,30 @@ class CmdsChroma:
             return 0
         sys_.add("chroma_window", chroma_window, category="chroma")
 
-        def _widen_if_needed(parent: str) -> bool:
+        def title_toggle(args, data, ctx):
+            # `title_toggle` flips; `title_toggle short|full` sets. For screenshots:
+            # the window title otherwise carries the full sandbox path.
+            if cls._window is None:
+                return args.append_error("title_toggle: main window not set")
+            first = args.get(1) if args.count() >= 2 and not args.get(1).name else None
+            if first is not None and first.value not in ("short", "full"):
+                return args.append_error("title_toggle: usage [short|full]")
+            short = (first.value == "short") if first is not None else not cls._window._title_short
+            cls._window.set_title_short(short)
+            args.append("short" if short else "full", "TITLE")
+            return 0
+        sys_.add("title_toggle", title_toggle, category="chroma")
+
+        def _widen_if_needed(target: str) -> bool:
+            # Widen the sandbox to the nearest common ancestor of the sandbox
+            # and the target, so a sibling tree opens the same way a parent does.
             fs = FsBridge.inst()
             if fs is None:
                 return True
-            if fs.is_inside(parent, fs.allowed_dir_):
+            if fs.is_inside(target, fs.allowed_dir_):
                 return True
-            if not fs.set_allowed_root(parent):
+            common = os.path.commonpath([fs.allowed_dir_, os.path.abspath(target)])
+            if not fs.set_allowed_root(common):
                 return False
             if cls._bus is not None:
                 cls._bus.notify_sandbox_changed(fs.allowed_dir_)

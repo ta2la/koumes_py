@@ -14,7 +14,7 @@
 # limitations under the License.
 """ChromaPage - QWebEnginePage for VIEW panels (local file access only).
 
-Python port of APPS/AI_T2LS/ChromaPage.h.
+Python port of the C++ predecessor's ChromaPage.h.
 
 http/https navigation is rejected and re-routed to a www panel via PanelBus.
 """
@@ -31,6 +31,15 @@ class ChromaPage(QWebEnginePage):
     def __init__(self, role: str = "", parent=None):
         super().__init__(parent)
         self._role: str = role
+        # Viewers may ask for the device position (seamap: GPS toggle). Local files are
+        # the user's own tree, so the request is granted; every other feature stays denied.
+        self.featurePermissionRequested.connect(self._on_feature_permission)
+
+    def _on_feature_permission(self, origin: QUrl, feature) -> None:
+        F = QWebEnginePage.Feature
+        P = QWebEnginePage.PermissionPolicy
+        granted = feature == F.Geolocation
+        self.setFeaturePermission(origin, feature, P.PermissionGrantedByUser if granted else P.PermissionDeniedByUser)
 
     @classmethod
     def set_bus(cls, bus) -> None:

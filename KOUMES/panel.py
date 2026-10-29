@@ -15,7 +15,7 @@
 """Panel - one column of the 4-panel main window.
 
 Python port of the `Panel_` struct + `wrapPanel_` factory from
-APPS/AI_T2LS/Main.cpp.
+the C++ predecessor's Main.cpp.
 
 A panel = toolbar row (refresh + navigation buttons)
        + role bar (role label left, switcher right - see role_bar.py)
@@ -55,17 +55,40 @@ _TOOLBAR_QSS = (
     "QPushButton:hover:!checked { background: #eef0f3; }"
 )
 
-_ICON_BTN_QSS = "font-size: 27px; padding: 0; min-width: 38px; min-height: 38px;"
+def icon_btn_qss(extra: str = "") -> str:
+    """The toolbar icon look, optionally with extra QPushButton declarations.
+
+    Callers that restyle a single button (main_window paints dir_up red at the
+    sandbox edge) go through this instead of retyping the rule - a retyped copy
+    without the selector would take the tooltip down with it.
+    """
+    return ("QPushButton { font-size: 27px; padding: 0;"
+            " min-width: 38px; min-height: 38px; " + extra + " }")
+
+
+#: `⬆` is green while there is somewhere to go, and red at the sandbox edge
+#: (main_window._refresh_dir_up) - the one step that would take the tree
+#: further than it was given. Green/red carries that on its own, without a
+#: tooltip: inside the box, out of the box.
+DIR_UP_COLOR = "#16a34a"
+
+
+def dir_up_qss(extra: str = "") -> str:
+    return icon_btn_qss(f"color: {DIR_UP_COLOR}; " + extra)
+
+
+_ICON_BTN_QSS = icon_btn_qss()
 
 _TAB_TOGGLE_QSS = (
-    "background: #fef3c7; color: #92400e; border: 1px solid #d97706;"
+    "QPushButton { background: #fef3c7; color: #92400e; border: 1px solid #d97706;"
     " border-radius: 4px; padding: 4px 12px; font-weight: 700; font-size: 13px;"
-    " min-width: 60px; min-height: 34px;"
+    " min-width: 60px; min-height: 34px; }"
 )
 
 _SETTINGS = AppPaths.inst().settings()
 _INFO_BG = _SETTINGS.get("info_bg", "#1f2937")
 _INFO_BORDER = _SETTINGS.get("info_border", "#111827")
+
 
 def _info_bar_qss(bg: str, border: str) -> str:
     return (
@@ -77,9 +100,16 @@ def _info_bar_qss(bg: str, border: str) -> str:
 
 
 _INFO_BAR_QSS = _info_bar_qss(_INFO_BG, _INFO_BORDER)
-# Warm counterpart for the tinted panel - the info bar is dark by design, so it
-# takes the tint as a warmer dark rather than a yellow one.
-_INFO_BAR_QSS_TINT = tinted(_INFO_BAR_QSS)
+
+
+# The left panel used to run its info bar through theme.tinted(), which swaps
+# the *literal* default colours for warm ones - so it came out near-black while
+# the others stayed blue-grey, and a colour set in config.t2l missed it
+# entirely. Its bar now reads config like everybody else; `info_bg_left` /
+# `info_border_left` are there for whoever wants it to stand out again.
+_INFO_BG_LEFT = _SETTINGS.get("info_bg_left", _INFO_BG)
+_INFO_BORDER_LEFT = _SETTINGS.get("info_border_left", _INFO_BORDER)
+_INFO_BAR_QSS_LEFT = _info_bar_qss(_INFO_BG_LEFT, _INFO_BORDER_LEFT)
 
 _URL_INPUT_QSS = (
     "QLineEdit { background: #111827; color: #f9fafb; border: 1px solid #4b5563;"
@@ -268,14 +298,14 @@ class Panel(QWidget):
 
         self.refresh = icon_btn("🔄", "Reload")
         self.hide_parent = icon_btn("□", "Dir Panel", checkable=True)
-        self.dir_up = icon_btn("⬅", "Dir Up")
+        self.dir_up = icon_btn("⬆", "Dir Up")
+        self.dir_up.setStyleSheet(dir_up_qss())
         self.fm = icon_btn("⬈", "Open externally (fm / browser)")
         self.reveal_dir = icon_btn("📂", "Show doc's dir in dir panel")
         self.hide_rightmost = icon_btn("□", "Rightmost Panel", checkable=True)
-        self.help = icon_btn("❓", "Help - opens the help of what this panel shows")
 
         for name in ("tab_toggle", "refresh", "hide_parent", "dir_up",
-                     "fm", "reveal_dir", "hide_rightmost", "help"):
+                     "fm", "reveal_dir", "hide_rightmost"):
             btn = getattr(self, name)
             if btn is None:
                 continue
@@ -319,7 +349,7 @@ class Panel(QWidget):
     # -- info bar -----------------------------------------------------------
     def _build_info_bar(self, outer: QVBoxLayout) -> None:
         bar = QWidget(self)
-        bar.setStyleSheet(_INFO_BAR_QSS_TINT if self.TINT else _INFO_BAR_QSS)
+        bar.setStyleSheet(_INFO_BAR_QSS_LEFT if self.TINT else _INFO_BAR_QSS)
         bar.setFixedHeight(54)
         ib = QVBoxLayout(bar)
         ib.setContentsMargins(10, 4, 10, 4)
@@ -332,9 +362,11 @@ class Panel(QWidget):
         self.info_path.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.info_selection.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.info_viewer.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.info_path.setStyleSheet("color: #f9fafb; font-weight: 700;")
-        self.info_selection.setStyleSheet("color: #9ca3af; font-weight: 400;")
-        self.info_viewer.setStyleSheet("color: #fecaca; font-weight: 700;")
+        self.info_path.setStyleSheet("QLabel { color: #f9fafb; font-weight: 700; }")
+        self.info_selection.setStyleSheet(
+            "QLabel { color: #9ca3af; font-weight: 400; }")
+        self.info_viewer.setStyleSheet(
+            "QLabel { color: #fecaca; font-weight: 700; }")
         for lbl in (self.info_path, self.info_selection, self.info_viewer):
             lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
@@ -424,18 +456,20 @@ class DirPanel(Panel):
     button for a neighbour lives here, never the one that would hide us."""
 
     ROLE = "dir"
-    TOOLBAR = ("refresh", "hide_parent", "dir_up", "fm", "help")
+    TOOLBAR = ("refresh", "hide_parent", "dir_up", "fm")
     ROLE_BAR = DirRoleBar
 
 
 class DetailPanel(Panel):
-    """p1 - the document panel. Tabbable (view/www), reveals a doc's dir in
-    dir, and carries the ◨ that hides its neighbour p2."""
+    """p1 - the document panel. Reveals a doc's dir in dir, and carries the ◨
+    that hides its neighbour p2.
+
+    No www tab: a panel shows a document, and a link goes to the system
+    browser. `HAS_WWW` stays on Panel for the machinery, but nothing sets it.
+    """
 
     ROLE = "p1"
-    TOOLBAR = ("tab_toggle", "refresh", "hide_rightmost", "fm", "reveal_dir",
-               "help")
-    HAS_WWW = True
+    TOOLBAR = ("refresh", "hide_rightmost", "fm", "reveal_dir")
 
 
 class RightmostPanel(Panel):
@@ -443,5 +477,4 @@ class RightmostPanel(Panel):
     Same as p1 minus the toggle that would hide itself."""
 
     ROLE = "p2"
-    TOOLBAR = ("tab_toggle", "refresh", "fm", "reveal_dir", "help")
-    HAS_WWW = True
+    TOOLBAR = ("refresh", "fm", "reveal_dir")

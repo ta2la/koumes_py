@@ -22,6 +22,40 @@ the Qt chrome.
 Both the panel chrome and the role bar wear it, hence a place of its own.
 """
 
+from .app_paths import AppPaths
+
+_SETTINGS = AppPaths.inst().settings()
+
+#: One look for every tooltip, set through Qt's own API.
+#:
+#: Two separate things went wrong here. First, a widget stylesheet written as
+#: bare declarations (`font-size: 27px;`, no selector) reaches the widget's
+#: tooltip too - which is how a 27px icon button got 27px letters in its
+#: tooltip. That is fixed by giving every button stylesheet its selector.
+#: Second, a `QToolTip { ... }` rule did not paint anything: the tooltip kept
+#: the default pale-yellow ground with black text. So the look is set on
+#: QToolTip itself - font and palette, absolute values, no inheritance.
+TOOLTIP_BG = _SETTINGS.get("info_bg", "#1f2937")
+TOOLTIP_FG = "#d1d5db"
+TOOLTIP_PX = 13
+
+
+def apply_tooltip_style() -> None:
+    """Call once, after the QApplication exists (see main.run_gui)."""
+    from PyQt6.QtGui import QColor, QFont, QPalette
+    from PyQt6.QtWidgets import QToolTip
+
+    font = QFont("monospace")
+    font.setStyleHint(QFont.StyleHint.Monospace)
+    font.setPixelSize(TOOLTIP_PX)
+    QToolTip.setFont(font)
+
+    pal = QToolTip.palette()
+    pal.setColor(QPalette.ColorRole.ToolTipBase, QColor(TOOLTIP_BG))
+    pal.setColor(QPalette.ColorRole.ToolTipText, QColor(TOOLTIP_FG))
+    QToolTip.setPalette(pal)
+
+
 #: plain colour -> its warm counterpart
 TINT = {
     "#f5f5f5": "#fdfaec",   # toolbar

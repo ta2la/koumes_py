@@ -14,25 +14,34 @@
 # limitations under the License.
 """MainWindow - 4-panel splitter shell for KOUMES.
 
-Python port of the main-window portion of APPS/AI_T2LS/Main.cpp.
+Python port of the main-window portion of the C++ predecessor's Main.cpp.
 
 Layout:  [ parent (L) | dir (D) | detail (P1) | rightmost (P2) ]
 """
 
 import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
 from PyQt6.QtCore import QObject, Qt, QTimer, QUrl, pyqtSlot
 from PyQt6.QtWebChannel import QWebChannel
-from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEngineScript, QWebEngineSettings
+from PyQt6.QtWebEngineCore import (
+    QWebEngineDownloadRequest,
+    QWebEngineProfile,
+    QWebEngineScript,
+    QWebEngineSettings,
+)
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QPushButton,
     QSplitter,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -40,52 +49,46 @@ from PyQt6.QtWidgets import (
 from cmd_sys import CMD_SYS
 
 
+def _is_outside_sandbox(abs_: str, root: str) -> bool:
+    """The boundary is a path separator, not a string prefix: '<root>_files.html'
+    lies outside even though it starts with '<root>'."""
+    if not abs_:
+        return False
+    abs_c = os.path.normpath(os.path.abspath(abs_))
+    root_c = os.path.normpath(os.path.abspath(root))
+    return abs_c != root_c and not abs_c.startswith(root_c + os.sep)
+
+
 def _path_from_index(abs_: str, root: str) -> str:
     """Shorten abs to '<sandbox>/rel'. Outside sandbox -> full abs path."""
     if not abs_:
         return abs_
     abs_c = os.path.normpath(os.path.abspath(abs_))
-    root_c = os.path.normpath(os.path.abspath(root))
-    if not abs_c.startswith(root_c):
+    if _is_outside_sandbox(abs_c, root):
         return abs_c
+    root_c = os.path.normpath(os.path.abspath(root))
     root_base = os.path.basename(root_c) or root_c
     rel = abs_c[len(root_c):].lstrip(os.sep)
     return root_base if not rel else f"{root_base}/{rel}"
 
 
-def _is_outside_sandbox(abs_: str, root: str) -> bool:
-    if not abs_:
-        return False
-    abs_c = os.path.normpath(os.path.abspath(abs_))
-    root_c = os.path.normpath(os.path.abspath(root))
-    return not abs_c.startswith(root_c)
-
-
 from .app_paths import AppPaths
 from .chroma_page import ChromaPage
-from .chroma_www_page import ChromaWwwPage
 from .cmds_chroma import CmdsChroma
 from .cmds_paste import CmdsPaste
 from .cmds_www import CmdsWww
 from .fs_bridge import FsBridge
 from .panel import (DetailPanel, DirPanel, HOVER_QSS, LeftPanel, Panel,
-                    RightmostPanel, make_label_clickable, set_label_clickable)
+                    RightmostPanel, dir_up_qss, icon_btn_qss, make_label_clickable,
+                    set_label_clickable)
 from .panel_bus import PanelBus
+from .qt_viewer import ViewerHost, is_qt_target, QT_PREFIX, registry as qt_registry
 from .role_bar import button_label
 from . import viewer_resolver as vr
 from .viewer_bar import rebuild_viewer_bar
 
 
-_WWW_PROFILE: Optional[QWebEngineProfile] = None
 _QWEBCHANNEL_JS: Optional[str] = None
-
-
-def www_profile() -> QWebEngineProfile:
-    """Isolated profile for www panels (cookies/cache separated from view panels)."""
-    global _WWW_PROFILE
-    if _WWW_PROFILE is None:
-        _WWW_PROFILE = QWebEngineProfile("koumes-www")
-    return _WWW_PROFILE
 
 
 def _load_qwebchannel_js() -> str:
@@ -109,6 +112,20 @@ window.__chroma.role = (function () {
     var p = new URLSearchParams(location.search);
     return p.get('role') || 'mid';
 })();
+// ====== path -> URL the browser can load ======
+// A viewer knows a path; what the <img src> needs is a URL, and the two are
+// not the same thing in every host. Here they nearly are - Qt loads the page
+// off the disk, so a path becomes a `file://` URL. A host that serves the same
+// viewers over http gives this function its own body; that is the whole of the
+// difference, and it is the reason no viewer writes `file://` itself.
+//
+// Synchronous on purpose. It is called while building markup, not inside a
+// promise - a bridge round trip here would force every viewer to render twice.
+window.__chroma.fileUrl = function (path) {
+    if (!path) return '';
+    if (/^([a-z]+:|\/\/|data:)/i.test(path)) return path;   // already a URL
+    return 'file://' + path;
+};
 window.__chroma.ready = new Promise(function (resolve) {
     new QWebChannel(qt.webChannelTransport, function (channel) {
         window.__chroma.fs  = channel.objects.fs;
@@ -223,6 +240,18 @@ def setup_panel(view: QWebEngineView, role: str, bridge: FsBridge, bus: PanelBus
     ):
         s.setAttribute(attr, True)
 
+    # Nothing a page opens here may keep anything. A viewer is a way of looking
+    # at a file, not a site with a memory: state belongs next to the file, in
+    # t2l the tree can read, never in a cookie jar or a localStorage key that
+    # only Chromium knows about. Off for every panel, so it holds for viewers
+    # in the tree as much as for the ones shipped with the app.
+    s.setAttribute(A.LocalStorageEnabled, False)
+    prof = page.profile()
+    prof.setPersistentCookiesPolicy(
+        QWebEngineProfile.PersistentCookiesPolicy.NoPersistentCookies)
+    prof.setHttpCacheType(QWebEngineProfile.HttpCacheType.NoCache)
+    prof.cookieStore().deleteAllCookies()
+
     channel = QWebChannel(page)
     channel.registerObject("fs", bridge)
     channel.registerObject("bus", bus)
@@ -290,10 +319,6 @@ class MainWindow(QMainWindow):
         self.detail_view = QWebEngineView()
         self.rm_view = QWebEngineView()
 
-        self.right_www = QWebEngineView()
-        self.rm_www = QWebEngineView()
-        self.right_www.setPage(ChromaWwwPage(www_profile(), self.right_www))
-        self.rm_www.setPage(ChromaWwwPage(www_profile(), self.rm_www))
 
         setup_panel(self.left_view, "parent", self.bridge, self.bus)
         setup_panel(self.dir_view, "mid", self.bridge, self.bus)
@@ -304,8 +329,17 @@ class MainWindow(QMainWindow):
         # switches viewers or contents, and how it is tinted. See panel.py.
         self.p_left: Panel = LeftPanel(self.left_view)
         self.p_dir: Panel = DirPanel(self.dir_view)
-        self.p_right: Panel = DetailPanel(self.detail_view, self.right_www)
-        self.p_rm: Panel = RightmostPanel(self.rm_view, self.rm_www)
+        # p1 and p2 show a document either in their web view or in a Qt
+        # viewer (qt_viewer.py); the host swaps between the two.
+        self.p1_host = ViewerHost(self.detail_view,
+                                  lambda p, n: self._on_qt_selected("p1", p, n),
+                                  self._on_qt_failed)
+        self.p2_host = ViewerHost(self.rm_view,
+                                  lambda p, n: self._on_qt_selected("p2", p, n),
+                                  self._on_qt_failed)
+
+        self.p_right: Panel = DetailPanel(self.p1_host)
+        self.p_rm: Panel = RightmostPanel(self.p2_host)
 
         self.p_left.wrap.setMinimumWidth(150)
         self.p_dir.wrap.setMinimumWidth(150)
@@ -358,8 +392,7 @@ class MainWindow(QMainWindow):
         CmdsChroma.set_detail_view(self.detail_view)
         CmdsChroma.set_rightmost_view(self.rm_view)
         CmdsChroma.set_window(self)
-        CmdsWww.set_detail_www(self.right_www)
-        CmdsWww.set_rightmost_www(self.rm_www)
+        CmdsChroma.set_hosts(self.p1_host, self.p2_host)
 
         self._wire_bus()
 
@@ -371,8 +404,9 @@ class MainWindow(QMainWindow):
         self._wire_left_panel_tabs()
         self._wire_dir_viewer_toggle()
         self._wire_infobar_clicks()
+        self._wire_downloads()
 
-        # p2 starts visible, like C++ ("□" = both shown, Main.cpp:1218). It used
+        # p2 starts visible, like C++ ("□" = both shown). It used
         # to be hidden here from the days it was an empty www skeleton; now it
         # loads the same startup page as p1, so there is nothing to hide.
         self.p_right.hide_rightmost.setText("□")
@@ -394,7 +428,7 @@ class MainWindow(QMainWindow):
         if self.start_file:
             self.bus.notify_file_selected(self.start_file)
 
-        log_html = os.path.join(self.root, ".t2l", "cmdlog.html")
+        log_html = vr.find_viewer_html(self.root, self.root, "cmdlog")
         if os.path.isfile(log_html):
             self.bus.notify_panel_show("left", log_html, "")
 
@@ -413,7 +447,17 @@ class MainWindow(QMainWindow):
         titulku nepatri - meni se pri kazdem kroku a tim tu identitu rozmazava;
         kde jsi, rekne info bar.
         """
+        if self._title_short:
+            return "KOUMES"
         return f"KOUMES  {self.root}"
+
+    _title_short = False
+
+    def set_title_short(self, short: bool) -> None:
+        """`title_toggle`: hide the sandbox path in the window title (screenshots),
+        or bring it back. The stripe inside the window is not touched."""
+        self._title_short = short
+        self.setWindowTitle(self._window_title())
 
     def showEvent(self, ev) -> None:
         super().showEvent(ev)
@@ -457,6 +501,27 @@ class MainWindow(QMainWindow):
         rm = self.p_rm.wrap.width() if self.p_rm.wrap.isVisibleTo(self) else 0
         return [left, self.p_dir.wrap.width(), self.p_right.wrap.width(), rm]
 
+    def ensure_panel_width(self, which: str) -> None:
+        """Give a just-unhidden panel a share of the splitter.
+
+        Hiding a panel and showing it again are two different things to a
+        splitter: `setVisible(True)` puts the widget back, but if its slot was
+        dragged (or restored) to zero, it comes back as a stripe zero pixels
+        wide - visible, and still nothing to see. That is what "the panel does
+        not come up" looks like from the outside. So when the slot is empty,
+        halve the neighbour and hand it over.
+        """
+        split, idx = ((self._right_split, 1) if which == "p2"
+                      else (self._left_dir_split, 0))
+        sizes = split.sizes()
+        if len(sizes) != 2 or sizes[idx] > 0:
+            return
+        total = sum(sizes) or split.width()
+        if total <= 0:
+            return
+        half = max(1, total // 2)
+        split.setSizes([total - half, half] if idx == 1 else [half, total - half])
+
     def restore_splitter(self, left: int, dir_w: int, p1: int, p2: int) -> None:
         self._size_locked = True
         # A panel saved at zero was hidden, not shrunk - restoring it as a
@@ -477,6 +542,7 @@ class MainWindow(QMainWindow):
             return "native" if target == file else os.path.splitext(os.path.basename(target))[0]
 
         return {
+            "active": CmdsChroma.active_panel(),
             "dir": CmdsChroma._last_dir,
             "p1": self._last_p1_file,
             "p1v": viewer_of(self._last_p1_html, self._last_p1_file),
@@ -495,6 +561,11 @@ class MainWindow(QMainWindow):
             f = state.get(panel, "")
             if not f or not os.path.isfile(f):
                 continue
+            # Same rule as the dir above: a file outside this run's root is not
+            # restored. It would render, but its viewer could not write, so it
+            # came back as a half-working page instead of a sandbox boundary.
+            if not FsBridge.is_inside(f, self.root):
+                continue
             notify(f)
             viewer = state.get(panel + "v", "")
             # The switch handler is registered by the selection above, so this
@@ -502,6 +573,11 @@ class MainWindow(QMainWindow):
             fn = CmdsChroma._switch_fns.get(panel)
             if viewer and fn is not None:
                 fn(viewer)
+
+        # Last, so it is not undone by the two selections above.
+        active = state.get("active", "")
+        if active in ("p1", "p2"):
+            CMD_SYS().execute_thread_safe(f"panel_active {active}", "ui", -1, "RESTORE")
 
     def _startup_html(self) -> str:
         """HTML shown in p1 / p2 before the user picks anything.
@@ -545,13 +621,92 @@ class MainWindow(QMainWindow):
         self._load_view_html(self.rm_view, init_html, "", "rightmost",
                              start=self.start_dir)
 
+    def _wire_downloads(self) -> None:
+        """Accept what a page in a panel downloads, instead of dropping it.
+
+        Without a handler on `downloadRequested` QtWebEngine cancels every
+        download, so an HTML app whose "export" is a Blob + `<a download>` did
+        nothing on click. The file goes where a paste goes - `exchange_dir`
+        (`<root>/exchange` unless config says otherwise): the drop box between
+        the user and the agents. Not next to the file shown in the panel - that can
+        be a git repo or a private directory, and a download nobody looked at yet does
+        not belong in either.
+
+        Only the download itself is let through; localStorage and cookies stay
+        off (see setup_panel).
+        """
+        self._downloads_pending: set[str] = set()
+        seen = set()
+        for view in (self.left_view, self.dir_view, self.detail_view, self.rm_view):
+            prof = view.page().profile()
+            if id(prof) in seen:
+                continue
+            seen.add(id(prof))
+            prof.downloadRequested.connect(self._on_download)
+
+    def _free_download_name(self, folder: str, name: str) -> str:
+        # Never overwrite: `kalkulace.json`, then `kalkulace_1.json`, ...
+        # Names of downloads still in flight count as taken too.
+        base, ext = os.path.splitext(name)
+        cand, n = name, 0
+        while (os.path.exists(os.path.join(folder, cand))
+               or os.path.join(folder, cand) in self._downloads_pending):
+            n += 1
+            cand = f"{base}_{n}{ext}"
+        return cand
+
+    def _on_download(self, req: QWebEngineDownloadRequest) -> None:
+        folder = CmdsPaste.exchange_dir()
+        try:
+            os.makedirs(folder, exist_ok=True)
+        except OSError:
+            req.cancel()
+            return
+        name = os.path.basename(req.downloadFileName() or "") or "download"
+        name = self._free_download_name(folder, name)
+        path = os.path.join(folder, name)
+        self._downloads_pending.add(path)
+        req.setDownloadDirectory(folder)
+        req.setDownloadFileName(name)
+
+        page = req.page()
+
+        def finished() -> None:
+            if not req.isFinished():
+                return
+            self._downloads_pending.discard(path)
+            ok = req.state() == QWebEngineDownloadRequest.DownloadState.DownloadCompleted
+            if ok:
+                # Same command a canvas export uses: it lands in the command
+                # log and lights the paste status line.
+                CMD_SYS().execute_thread_safe(f'export_saved "{path}"', "js", -1, "HTML")
+            msg = (f"downloaded: {path}" if ok
+                   else f"download failed: {name} ({req.interruptReasonString()})")
+            self._flash_on_panel(page, msg)
+
+        req.isFinishedChanged.connect(finished)
+        req.accept()
+
+    def _flash_on_panel(self, page, msg: str) -> None:
+        """Short-lived note over the info bar of the panel `page` lives in.
+
+        The paste status line sits in the left panel, which is collapsed most
+        of the time; the note has to show up where the click was.
+        """
+        pairs = ((self.left_view, self.p_left), (self.dir_view, self.p_dir),
+                 (self.detail_view, self.p_right), (self.rm_view, self.p_rm))
+        panel = next((p for v, p in pairs if v.page() is page), self.p_right)
+        bar = panel.info_bar
+        QToolTip.showText(bar.mapToGlobal(bar.rect().bottomLeft()), msg, bar,
+                          bar.rect(), 8000)
+
     def _wire_infobar_clicks(self) -> None:
         """The viewer row is an address: click it and that viewer lands in p1.
 
         `t2l.html` is a file like any other and has to be able to step into the
         file's place and be shown. The path row above it is deliberately left
         inert - it names the document the panel already displays. Port of the
-        C++ wireClickToP1 (Main.cpp:1190), which wired both rows.
+        C++ wireClickToP1, which wired both rows.
         """
         def wire(label) -> None:
             def go(lbl=label) -> None:
@@ -588,9 +743,9 @@ class MainWindow(QMainWindow):
         page behind it. Default stays on log - menu is somewhere you go to do
         a thing, not something you want in view all the time.
         """
-        bm_html = os.path.join(self.root, ".t2l", "bookmarks.html")
+        bm_html = vr.find_viewer_html(self.root, self.root, "bookmarks")
         dirs_html = vr.find_viewer_html(self.root, self.root, "dirs")
-        log_html = os.path.join(self.root, ".t2l", "cmdlog.html")
+        log_html = vr.find_viewer_html(self.root, self.root, "cmdlog")
 
         pL = self.p_left
         pL.custom.setText("bookmarks")
@@ -646,6 +801,8 @@ class MainWindow(QMainWindow):
         self.bus.fileSelectedRightmost.connect(self._on_file_selected_rightmost)
         self.bus.fileSelectedForBrowse.connect(self._on_file_selected_for_browse)
         self.bus.lineChanged.connect(self._on_line_changed)
+        self.bus.lineChanged.connect(lambda n: self._on_qt_line(self.p1_host, n))
+        self.bus.lineChangedRightmost.connect(lambda n: self._on_qt_line(self.p2_host, n))
         self.bus.wwwUrlRequested.connect(self._on_www_url_requested)
         self.bus.selectionChanged.connect(self._on_selection_changed)
         self.bus.panelShow.connect(self._on_panel_show)
@@ -662,7 +819,7 @@ class MainWindow(QMainWindow):
                 self.bus.notify_line_changed(line)
             return
         viewer = browse[0]
-        target = vr.find_viewer_html(os.path.dirname(file_path), self.root, viewer)
+        target = vr.find_viewer_target(os.path.dirname(file_path), self.root, viewer)
         if not target:
             self.bus.notify_file_selected(file_path)
             if line > 0:
@@ -702,16 +859,37 @@ class MainWindow(QMainWindow):
             return
         parent = os.path.dirname(os.path.abspath(d))
         would_exit = not FsBridge.is_inside(parent, self.display_root)
-        base_style = "font-size: 27px; padding: 0; min-width: 38px; min-height: 38px;"
         if would_exit:
-            self.p_dir.dir_up.setStyleSheet(base_style + " color: #f87171; font-weight: 700;")
+            self.p_dir.dir_up.setStyleSheet(icon_btn_qss("color: #f87171;"))
             self.p_dir.dir_up.setToolTip(f"Sandbox edge — click extends sandbox to {parent}")
         else:
-            self.p_dir.dir_up.setStyleSheet(base_style)
+            self.p_dir.dir_up.setStyleSheet(dir_up_qss())
             self.p_dir.dir_up.setToolTip(f"Dir up → {parent}")
 
     def _on_sandbox_changed(self, new_root: str) -> None:
         pass
+
+    def set_active_panel(self, key: str) -> None:
+        """Paint which document panel takes an unaddressed file.
+
+        Called by the `panel_active` command, never directly by the chip - the
+        chip fires the command like every other button, so the switch is logged
+        and an agent sees it happen.
+        """
+        if key not in ("p1", "p2"):
+            return
+        self.p_right.role_bar.set_active(key == "p1")
+        self.p_rm.role_bar.set_active(key == "p2")
+
+    def _mark_viewer_button(self, bar, name: str) -> None:
+        """Tick the viewer the panel really ended up with.
+
+        The bar is built with the first choice ticked; when the file was opened
+        *through* a named viewer, the tick has to follow, or the bar would say
+        one thing and the panel show another.
+        """
+        for b in bar.findChildren(QPushButton):
+            b.setChecked(button_label(b) == name)
 
     def _on_panel_show(self, panel: str, file: str, viewer: str) -> None:
         # Re-emit on the bus instead of calling the handlers directly, so every
@@ -722,12 +900,23 @@ class MainWindow(QMainWindow):
         if panel == "dir":
             if os.path.isdir(file):
                 self.bus.notify_dir_change(file)
-        elif panel == "p1":
-            if os.path.isfile(file):
+        elif panel in ("p1", "p2"):
+            if not os.path.isfile(file):
+                return
+            if panel == "p1":
                 self.bus.notify_file_selected(file)
-        elif panel == "p2":
-            if os.path.isfile(file):
+                bar = self.p_right.viewer_bar
+            else:
                 self.bus.notify_file_selected_rightmost(file)
+                bar = self.p_rm.viewer_bar
+            if not viewer:
+                return
+            # The panel is loaded by now (the signal is direct), so its switch
+            # function is registered and knows which file it is switching.
+            fn = CmdsChroma._switch_fns.get(panel)
+            if fn is not None:
+                fn(viewer)
+                self._mark_viewer_button(bar, viewer)
         elif panel == "left":
             # `panel_show left menu` is not a file - it raises the widget page.
             # A tab reachable only by clicking would be the one thing in this
@@ -755,10 +944,13 @@ class MainWindow(QMainWindow):
         base = os.path.basename(file)
         info_path_file = file
         self._left_load_ctr = getattr(self, "_left_load_ctr", 0) + 1
-        if base == "cmdlog.html":
+        # A viewer is `<name>.exe.html`, or `<name>.html` in a tree written
+        # before that; both answer to the same name.
+        stem = base.split(".")[0]
+        if stem == "cmdlog":
             info_path_file = os.path.join(AppPaths.inst().dir_config(), "cmdlog.txt")
             q = f"role=parent&file={info_path_file}&_ts={self._left_load_ctr}"
-        elif base == "bookmarks.html":
+        elif stem == "bookmarks":
             info_path_file = os.path.join(self.root, ".t2l", "bookmarks.t2l")
             q = f"role=parent&file={info_path_file}&_ts={self._left_load_ctr}"
         else:
@@ -773,6 +965,15 @@ class MainWindow(QMainWindow):
             return
         CmdsChroma.set_last_dir(path)
         CmdsChroma.set_sel_file("dir", path)
+
+        # A preselect belongs to one listing: it is the entry marked *in* this
+        # directory. Stepping into a folder leaves it behind - and the one that
+        # was left behind is usually the folder just entered, which would then
+        # sit in the info row repeating the row's own last element. Drop
+        # anything that does not live in the new listing.
+        pre = str(CmdsChroma._preselects.get("dir", "") or "")
+        if pre and os.path.dirname(os.path.normpath(pre)) != os.path.normpath(path):
+            CmdsChroma._preselects.pop("dir", None)
 
         custom_viewer = vr.read_viewer_name(path)
 
@@ -915,6 +1116,15 @@ class MainWindow(QMainWindow):
         # Query is built the same way for a viewer HTML and for a native load
         # (target == file) - matches C++ loadDetail / loadRightmost, which never
         # branch on native either.
+        host = {self.detail_view: self.p1_host, self.rm_view: self.p2_host}.get(view)
+        if host is not None:
+            if is_qt_target(target):
+                # The page behind the Qt viewer would keep listening on the bus
+                # and answer chroma_setline with a line of its own - empty it.
+                view.setUrl(QUrl("about:blank"))
+                host.show_qt(target[len(QT_PREFIX):], file, line)
+                return
+            host.show_web()
         url = QUrl.fromLocalFile(target)
         q = f"role={role}"
         if start:
@@ -934,7 +1144,57 @@ class MainWindow(QMainWindow):
         url.setQuery(q)
         view.setUrl(url)
 
+    def _reload_dir(self) -> None:
+        """Refresh the dir panel where it stands, not where it was opened.
+
+        The panel's URL carries the dir it was loaded with (`?start=…`) and is
+        then deliberately left alone: walking the tree only moves the JS side
+        over the bus, so the page is not thrown away on every step. A plain
+        `reload()` therefore serves that first dir again and the panel jumps
+        back to the sandbox root. Rebuild the query from the dir the panel is
+        actually on. `_ts` is the same cache-buster the rightmost panel uses -
+        without it the identical URL comes back from cache and nothing moves.
+        """
+        path = CmdsChroma._last_dir
+        if not path or not CmdsChroma._last_dir_viewer:
+            self.dir_view.reload()   # native listing: the URL *is* the dir
+            return
+        url = self.dir_view.url()
+        key = "dir" if "dir=" in url.query() else "start"
+        self._dir_load_ctr = getattr(self, "_dir_load_ctr", 0) + 1
+        url.setQuery(f"role=mid&{key}={path}&_ts={self._dir_load_ctr}")
+        self.dir_view.setUrl(url)
+
+    def _on_qt_selected(self, panel: str, path: str, record_no: int) -> None:
+        """A Qt viewer picked a record - same effect as an HTML viewer calling
+        fs.setSelectedFile / fs.setSelectedLine, so chroma_file and
+        chroma_line answer it."""
+        self.bridge.setSelectedFile(path)
+        self.bridge.setSelectedLine(record_no)
+
+    def _on_qt_line(self, host: ViewerHost, record_no: int) -> None:
+        """chroma_setline into a Qt viewer. An HTML viewer publishes the line it
+        was moved to; select() must not emit, so the line is published here."""
+        if host.is_qt():
+            host.select(record_no)
+            self.bridge.setSelectedLine(record_no)
+
+    def _on_qt_failed(self, msg: str) -> None:
+        # The error is on screen in the panel; the viewer bar still offers txt.
+        print(msg, file=sys.stderr)
+
     def _set_info_viewer(self, label, target: str, is_native: bool) -> None:
+        if is_qt_target(target):
+            # A Qt viewer has no HTML to step into; the tooltip says where its
+            # code is (deployment config.t2l, `qt_viewer:`).
+            file_, cls = qt_registry().get(target[len(QT_PREFIX):], ("", ""))
+            label.setText(target)
+            label.setToolTip(f"{file_}:{cls}")
+            label.setProperty("cmdPath", file_)
+            set_label_clickable(label, False)
+            label.setStyleSheet("QLabel { color: #9ca3af; }" + HOVER_QSS)
+            self._sync_copy_btn(label, bool(file_))
+            return
         if is_native:
             label.setText("NATIVE")
             label.setToolTip("")
@@ -978,7 +1238,7 @@ class MainWindow(QMainWindow):
             if not f:
                 return
             file_dir = os.path.dirname(f)
-            target = f if viewer == "native" else vr.find_viewer_html(file_dir, self.root, viewer)
+            target = f if viewer == "native" else vr.find_viewer_target(file_dir, self.root, viewer)
             if not target:
                 return
             self._last_p1_html = ""
@@ -1010,7 +1270,7 @@ class MainWindow(QMainWindow):
             if not f:
                 return
             file_dir = os.path.dirname(f)
-            target = f if viewer == "native" else vr.find_viewer_html(file_dir, self.root, viewer)
+            target = f if viewer == "native" else vr.find_viewer_target(file_dir, self.root, viewer)
             if not target:
                 return
             self._last_p2_html = ""
@@ -1020,8 +1280,14 @@ class MainWindow(QMainWindow):
         rebuild_viewer_bar(self.p_rm.viewer_bar, path, self.root, load_fn, "", "p2")
 
     def _on_www_url_requested(self, url: QUrl, source: str) -> None:
-        target = self.rm_www if source in ("parent", "mid", "detail") else self.right_www
-        target.setUrl(url)
+        """A link leaves koumes - the panels show documents, not the web.
+
+        There used to be a www tab next to the document; a browser inside a
+        400px panel was worse at being a browser than the one the user already
+        has. The URL goes out to the system default and the panel keeps the
+        document it was showing.
+        """
+        subprocess.Popen(["xdg-open", url.toString()])
 
     def _on_selection_changed(self, panel: str, file: str, line: int) -> None:
         label = path_label = None
@@ -1067,7 +1333,7 @@ class MainWindow(QMainWindow):
         label.setProperty("cmdPathLine", f"{file}:{line}" if line else "")
         outside = _is_outside_sandbox(file, self.root)
         label.setStyleSheet(
-            "color: #f87171; font-weight: 400;" if outside
-            else "color: #9ca3af; font-weight: 400;"
+            ("QLabel { color: #f87171; font-weight: 400; }" if outside
+             else "QLabel { color: #9ca3af; font-weight: 400; }")
         )
         self._sync_copy_btn(label, bool(file), bool(file) and line > 0)

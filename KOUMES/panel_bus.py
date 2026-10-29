@@ -14,7 +14,7 @@
 # limitations under the License.
 """PanelBus - pub/sub channel between HTML panels in chroma.
 
-Python port of APPS/AI_T2LS/PanelBus.h.
+Python port of the C++ predecessor's PanelBus.h.
 
 Register as "bus" in every WebChannel (left/dir/detail/rightmost panel).
 When one panel calls a notify_* method, every panel receives the corresponding

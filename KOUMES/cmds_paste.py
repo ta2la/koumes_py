@@ -51,7 +51,7 @@ class CmdsPaste:
     def exchange_dir(cls) -> str:
         """Where pasted files land.
 
-        `exchange_dir` in `config/settings.t2l` wins. Without it: `<root>/exchange`
+        `exchange_dir` in `other_config/config.t2l` wins. Without it: `<root>/exchange`
         if the tree has one - that is the drop box agents read, and the reason
         this button exists - then the machine's screenshot folder, and that one
         as a last resort even if it has to be created.

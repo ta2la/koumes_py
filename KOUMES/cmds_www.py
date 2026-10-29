@@ -14,7 +14,7 @@
 # limitations under the License.
 """Cmds_www - CmdSys commands for the WWW (external web) panels.
 
-Python port of APPS/AI_T2LS/Cmds_www.h.
+Python port of the C++ predecessor's Cmds_www.h.
 
 All commands accept an optional --panel arg (default "right"). Panel names:
 "detail" / "d" -> detail www view; "right" / "r" -> rightmost www view.

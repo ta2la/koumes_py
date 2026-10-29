@@ -32,7 +32,7 @@ class AppPaths:
 
     def __init__(self):
         self._dir_exe = str(Path(__file__).resolve().parent)
-        self._dir_config = str(Path(self._dir_exe).parent / "config")
+        self._dir_config = str(Path(self._dir_exe).parent / "other_config")
         self._settings: Optional[dict] = None
 
     @classmethod
@@ -49,23 +49,48 @@ class AppPaths:
         return self._dir_config
 
     def settings(self) -> dict:
-        """`config/settings.t2l` as a flat dict (last value wins on dupes).
+        """Attribute lines of `other_config/config.t2l` as a flat dict (last wins).
 
-        Deployment-local knobs - info bar colours, exchange dir. Missing file or
-        an unreadable one is not an error: the caller falls back to defaults.
+        Deployment-local knobs - WS port, info bar colours, exchange dir. They
+        live in the same file as the startup commands: `config.t2l` is a t2l
+        file that happens to hold commands, so an attribute line is at home in
+        it and `WindowPersist.restore()` steps over it. A line counts as an
+        attribute when its **first word** ends with a colon - that is the same
+        test restore() uses, and it keeps `set_panels --p1 "C:/x"` a command.
+
+        Missing file or an unreadable one is not an error: the caller falls
+        back to defaults.
         """
         if self._settings is None:
             self._settings = {}
-            path = os.path.join(self.dir_config(), "settings.t2l")
+            path = os.path.join(self.dir_config(), "config.t2l")
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
                         if not line or line.startswith("#"):
                             continue
-                        i = line.find(":")
-                        if i > 0:
-                            self._settings[line[:i].strip()] = line[i + 1:].strip()
+                        head = line.split(" ", 1)[0]
+                        if not head.endswith(":"):
+                            continue
+                        self._settings[head[:-1].strip()] = line[len(head):].strip()
             except OSError:
                 pass
         return self._settings
+
+    def settings_list(self, key: str) -> list:
+        """All values of a repeated attribute, in file order - `settings()`
+        keeps only the last. A t2l attribute may repeat, one thing per line;
+        `qt_viewer:` does, one viewer per line."""
+        out = []
+        path = os.path.join(self.dir_config(), "config.t2l")
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    head = line.split(" ", 1)[0]
+                    if head == key + ":":
+                        out.append(line[len(head):].strip())
+        except OSError:
+            pass
+        return out

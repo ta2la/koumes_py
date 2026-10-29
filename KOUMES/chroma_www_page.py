@@ -14,7 +14,7 @@
 # limitations under the License.
 """ChromaWwwPage - QWebEnginePage for WWW panels (external web only).
 
-Python port of APPS/AI_T2LS/ChromaWwwPage.h.
+Python port of the C++ predecessor's ChromaWwwPage.h.
 
 Rejects all local schemes (file://, data:, javascript:, qrc://, chrome://).
 Sub-frames pass unrestricted (iframes serving http/https content).

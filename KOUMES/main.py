@@ -32,7 +32,7 @@ from .app_paths import AppPaths
 
 
 DEFAULT_WS_PORT = 54325
-DEFAULT_DIRVIEW = "CODE_ROOT/APPS/AI_T2LS/dirview"
+DEFAULT_DIRVIEW = str(Path(__file__).resolve().parents[2])   # ../.. = koren baliku (.t2l/ viewery)
 
 
 def parse_args(argv: list) -> argparse.Namespace:
@@ -44,32 +44,37 @@ def parse_args(argv: list) -> argparse.Namespace:
     p.add_argument("--headless", action="store_true",
                    help="run without GUI (stdin + WS only)")
     p.add_argument("--port", type=int, default=None,
-                   help=f"WebSocket port (default: settings.t2l ws_port, else {DEFAULT_WS_PORT})")
+                   help=f"WebSocket port (default: config.t2l ws_port, else {DEFAULT_WS_PORT})")
     p.add_argument("--dirview", default=DEFAULT_DIRVIEW,
                    help=f"Fallback dir for viewer HTMLs (default: {DEFAULT_DIRVIEW})")
     return p.parse_args(argv)
 
 
-def _load_port_from_settings() -> int:
-    """Read ws_port from <dir_config>/settings.t2l. Returns 0 if missing/invalid."""
+def _load_port_from_config() -> int:
+    """Read `ws_port:` from <dir_config>/config.t2l. Returns 0 if missing/invalid.
+
+    The port has to be known before the WS server starts, which is long before
+    the config is executed as a script - so it is read here, not run.
+    """
     try:
-        p = os.path.join(AppPaths.inst().dir_config(), "settings.t2l")
-        if not os.path.isfile(p):
-            return 0
-        with open(p, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#") or ":" not in line:
-                    continue
-                k, _, v = line.partition(":")
-                if k.strip() == "ws_port":
-                    try:
-                        return int(v.strip())
-                    except ValueError:
-                        return 0
-    except Exception:
-        pass
-    return 0
+        return int(AppPaths.inst().settings().get("ws_port", ""))
+    except (TypeError, ValueError):
+        return 0
+
+
+#: commands kept in `other_config/cmdlog.txt` when the deployment says nothing
+DEFAULT_LOG_LINES = 300
+
+
+def _load_log_lines_from_config() -> int:
+    """`log_lines:` from this deployment's config.t2l. 0 there means no cap."""
+    raw = AppPaths.inst().settings().get("log_lines", "")
+    if raw == "":
+        return DEFAULT_LOG_LINES
+    try:
+        return max(0, int(raw))
+    except (TypeError, ValueError):
+        return DEFAULT_LOG_LINES
 
 
 def bootstrap(args: argparse.Namespace) -> None:
@@ -79,9 +84,9 @@ def bootstrap(args: argparse.Namespace) -> None:
     CmdsCmdSys.register_cmds_()
 
     log_path = os.path.join(AppPaths.inst().dir_config(), "cmdlog.txt")
-    LogGuard(log_path)
+    LogGuard(log_path, max_lines=_load_log_lines_from_config())
 
-    port = args.port or _load_port_from_settings() or DEFAULT_WS_PORT
+    port = args.port or _load_port_from_config() or DEFAULT_WS_PORT
     args.port = port
     WsServerLite.init(port=port)
     CmdBridge.init()
@@ -160,14 +165,18 @@ def run_gui(args: argparse.Namespace) -> int:
 
     from . import viewer_resolver as vr
     from .app_paths import AppPaths as _AP
-    koumes_dirview = os.path.join(_AP.inst().dir_exe(), "dirview")
+    koumes_dirview = os.path.join(os.path.dirname(_AP.inst().dir_exe()), "KOUMES_PY_APPS")   # HTML appky koumesu
     vr.set_extra_fallback_dirs([koumes_dirview, args.dirview])
+    from .qt_viewer import registry as _qt_registry
+    vr.set_qt_viewers(_qt_registry().keys())
 
     from .main_window import MainWindow
     from .toolbar import wire_toolbar
     from .window_persist import WindowPersist
 
     app = QApplication(sys.argv[:1])
+    from .theme import apply_tooltip_style
+    apply_tooltip_style()
     _quit_on_signals(app)
     win = MainWindow(args.root, args.start_dir)
     wire_toolbar(win)

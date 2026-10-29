@@ -14,7 +14,7 @@
 # limitations under the License.
 """wire_toolbar - connect Panel buttons to CmdSys.
 
-Python port of the toolbar-wiring section of APPS/AI_T2LS/Main.cpp.
+Python port of the toolbar-wiring section of the C++ predecessor's Main.cpp.
 
 Every button click is routed through CmdSys.execute_thread_safe(cmdline, ..., "TOOLBAR")
 so it gets logged, broadcast, and can be triggered externally via WS.
@@ -29,10 +29,11 @@ import os
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import QUrl
+from PyQt6.QtWidgets import QPushButton
 
 from cmd_sys import CMD_SYS
+from .app_paths import AppPaths
 from .cmds_chroma import CmdsChroma
-from . import help_resolver as hr
 
 if TYPE_CHECKING:
     from .main_window import MainWindow
@@ -47,9 +48,10 @@ def wire_toolbar(win: "MainWindow") -> None:
     _wire_reload(win)
     _wire_hide_toggles(win)
     _wire_tab_toggles(win)
+    _wire_active_panel(win)
     _wire_dir_navigation(win)
     _wire_fm_buttons(win)
-    _wire_help(win)
+    _wire_config_buttons(win)
 
 
 def _wire_app_bar(win: "MainWindow") -> None:
@@ -61,7 +63,9 @@ def _wire_app_bar(win: "MainWindow") -> None:
 
 def _wire_reload(win: "MainWindow") -> None:
     CmdsChroma.set_reload_fn("left", win.left_view.reload)
-    CmdsChroma.set_reload_fn("dir", win.dir_view.reload)
+    # Not `dir_view.reload()` - that would drop the panel back to the dir in
+    # its URL, which is where it was opened, typically the sandbox root.
+    CmdsChroma.set_reload_fn("dir", win._reload_dir)
     CmdsChroma.set_reload_fn("p1", win.detail_view.reload)
     CmdsChroma.set_reload_fn("p2", win.rm_view.reload)
 
@@ -79,11 +83,16 @@ def _wire_hide_toggles(win: "MainWindow") -> None:
     def toggle_left() -> None:
         new_visible = not win.p_left.wrap.isVisible()
         win.p_left.wrap.setVisible(new_visible)
+        if new_visible:
+            win.ensure_panel_width("left")
         win.p_dir.hide_parent.setText("□" if new_visible else "◧")
 
     def toggle_p2() -> None:
         new_visible = not win.p_rm.wrap.isVisible()
         win.p_rm.wrap.setVisible(new_visible)
+        # Visible is not the same as wide: a slot left at zero shows nothing.
+        if new_visible:
+            win.ensure_panel_width("p2")
         win.p_right.hide_rightmost.setText("□" if new_visible else "◨")
 
     CmdsChroma.set_toggle_fn("left", toggle_left)
@@ -97,6 +106,22 @@ def _wire_hide_toggles(win: "MainWindow") -> None:
     win.p_right.hide_rightmost.setToolTip("panel_toggle p2")
     win.p_right.hide_rightmost.clicked.connect(lambda _=False: _exec("panel_toggle p2"))
 
+
+
+def _wire_active_panel(win: "MainWindow") -> None:
+    """The p1 / p2 name chip picks which panel takes an unaddressed file.
+
+    The click fires `panel_active <key>` rather than flipping anything itself -
+    the painting is what the command does, so a click and a sent command end up
+    in exactly the same place.
+    """
+    CmdsChroma.set_active_fn(win.set_active_panel)
+    for panel, key in ((win.p_right, "p1"), (win.p_rm, "p2")):
+        chip = panel.role_bar.label
+        if not isinstance(chip, QPushButton):
+            continue
+        chip.clicked.connect(lambda _=False, k=key: _exec(f"panel_active {k}"))
+    win.set_active_panel(CmdsChroma.active_panel())
 
 
 def _wire_tab_toggles(win: "MainWindow") -> None:
@@ -153,119 +178,51 @@ def _wire_dir_navigation(win: "MainWindow") -> None:
             lambda _=False, k=key: _exec(f"reveal_dir {k}"))
 
 
-
-#: what a freshly generated help says - enough to show the button works and to
-#: say where to write the real thing.
-_HELP_STUB = """# Nápověda
-
-Tenhle soubor zatím nikdo nenapsal. Koumes ho založil sám, když jste poprvé
-klikli na ❓ a ve stromu žádná nápověda nebyla.
-
-**Sem se píše nápověda k tomuhle stromu.** Leží v jeho kořeni, jmenuje se po
-adresáři (`<jméno adresáře>.help.md`) a je to obyčejný markdown.
-
-Nápověda se dá napsat ke každému adresáři i ke každému souboru, vždycky pod
-stejným jménem - `<jméno>.help.md` vedle toho, co vysvětluje; u adresáře uvnitř
-něj. Tlačítko ❓ vezme tu nejužší, kterou najde, a když soubor svoji nemá,
-zeptá se jeho adresáře a postupně jeho rodičů - až sem.
-
-Co sem patří: co v tomhle stromu je, jak je uspořádaný, na co si dát pozor.
-Klidně to nechte napsat agenta - vidí do stejných souborů jako vy.
-"""
-
-
-def _ensure_root_help(root: str) -> str:
-    """Last resort: a tree with no help anywhere gets a starter one at its root.
-
-    A help button that opens nothing looks broken. Rather than reporting a
-    missing file, the first click writes one that says what belongs in it - and
-    from then on it is the answer every deeper level falls back to.
-    """
-    path = hr.root_help_path(root)
-    if os.path.exists(path):
-        return path
-    try:
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(_HELP_STUB)
-    except OSError:
-        return ""     # read-only tree - nothing to open, say so by staying quiet
-    return path
-
-
-def _wire_help(win: "MainWindow") -> None:
-    """❓ on dir, p1 and p2 - each shows the help of what its panel holds.
-
-    Where it lands: a panel that shows documents shows its own help (p1 into p1,
-    p2 into p2). The dir panel has nowhere to put a document, so its help goes
-    to p1.
-
-    It goes through `chroma_setfile` like any other navigation, so the click is
-    logged and broadcast; a button that reached into the view directly would be
-    the one thing on the toolbar an agent could not reproduce.
-    """
-    def show(target_panel: str, help_path: str) -> None:
-        if not help_path:
-            help_path = _ensure_root_help(win.root)
-        if not help_path:
-            return
-        # The target may be sitting on its www tab, where the file would load
-        # behind it.
-        pnl = win.p_rm if target_panel == "p2" else win.p_right
-        if pnl.stack is not None and pnl.stack.currentIndex() == 1:
-            _exec(f"tab_toggle {target_panel}")
-        tail = " --p2" if target_panel == "p2" else ""
-        _exec(f'chroma_setfile "{help_path}"{tail}')
-
-    def wire(button, tip: str, resolve) -> None:
-        if button is None:
-            return
-        button.setToolTip(tip)
-        button.clicked.connect(lambda _=False: resolve())
-
-    wire(win.p_dir.help, "chroma_setfile <help of this dir>",
-         lambda: show("p1", hr.find_help_for_dir(
-             CmdsChroma._last_dir or win.root, win.root)))
-
-    wire(win.p_right.help, "chroma_setfile <help of this file>",
-         lambda: show("p1", hr.find_help_for_file(
-             CmdsChroma._last_file, win.root)))
-
-    def p2_file() -> str:
-        sel = CmdsChroma._sel_for("p2")
-        return sel.file if sel is not None else ""
-
-    wire(win.p_rm.help, "chroma_setfile <help of this file> --p2",
-         lambda: show("p2", hr.find_help_for_file(p2_file(), win.root)))
-
-
 def _wire_fm_buttons(win: "MainWindow") -> None:
     win.p_dir.fm.setToolTip("chroma_openfm")
     win.p_dir.fm.clicked.connect(lambda _=False: _exec("chroma_openfm"))
 
-    # Tabbable panels: context-aware. View mode opens the current file, www mode
-    # opens the current URL. Both go through the `open_extern` command rather
-    # than spawning a process here, so the click is logged, broadcast, and
-    # reproducible from outside. Port of the C++ wireExternal lambda.
-    def wire_external(pnl, www_view) -> None:
+    # Document panels open the file they are showing. It goes through the
+    # `open_extern` command rather than spawning a process here, so the click is
+    # logged, broadcast, and reproducible from outside. Port of the C++
+    # wireExternal lambda, minus its www branch - there is no www tab any more.
+    def wire_external(pnl) -> None:
         if pnl.fm is None:
             return
-        pnl.fm.setToolTip("open_extern <current file / url>")
+        pnl.fm.setToolTip("open_extern <current file>")
 
-        def on_click(_checked=False, p=pnl, w=www_view) -> None:
-            in_www = p.stack is not None and p.stack.currentIndex() == 1
-            if in_www:
-                if w is None:
-                    return
-                target = w.url().toString()
-                if not target or target == "about:blank":
-                    return
-            else:
-                target = CmdsChroma._last_file
-                if not target:
-                    return
+        def on_click(_checked=False, p=pnl) -> None:
+            target = CmdsChroma._last_file
+            if not target:
+                return
             _exec(f'open_extern "{target}"')
 
         pnl.fm.clicked.connect(on_click)
 
-    wire_external(win.p_right, win.right_www)
-    wire_external(win.p_rm, win.rm_www)
+    wire_external(win.p_right)
+    wire_external(win.p_rm)
+
+
+def _wire_config_buttons(win: "MainWindow") -> None:
+    """Extra buttons on the p1 / p2 toolbars, one per `panel_button:` line in
+    the deployment's config.t2l:
+
+        panel_button: 👥 | Employees by dir | chroma_setfile /path/to/x.t2l --{panel}
+
+    icon | tooltip | command. `{panel}` becomes p1 or p2, so the button opens
+    things in the panel it sits on. The command goes through CmdSys like every
+    other toolbar click."""
+    from .panel import icon_btn_qss
+    for raw in AppPaths.inst().settings_list("panel_button"):
+        parts = [x.strip() for x in raw.split("|", 2)]
+        if len(parts) != 3 or not parts[0] or not parts[2]:
+            continue
+        icon, tip, cmd = parts
+        for panel, key in ((win.p_right, "p1"), (win.p_rm, "p2")):
+            lay = panel.toolbar.layout()
+            b = QPushButton(icon, panel.toolbar)
+            b.setToolTip(f"{tip}\n{cmd.replace('{panel}', key)}" if tip else cmd.replace("{panel}", key))
+            b.setStyleSheet(icon_btn_qss())
+            # before the trailing stretch, next to the built-in buttons
+            lay.insertWidget(lay.count() - 1, b)
+            b.clicked.connect(lambda _=False, c=cmd.replace("{panel}", key): _exec(c))

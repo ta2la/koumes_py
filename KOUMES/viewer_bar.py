@@ -14,13 +14,13 @@
 # limitations under the License.
 """viewer_bar - dynamic per-file viewer switch buttons.
 
-Python port of the `rebuildViewerBar` function from APPS/AI_T2LS/Main.cpp.
+Python port of the `rebuildViewerBar` function from the C++ predecessor's Main.cpp.
 
 Populates a panel's `viewer_bar` QWidget with one button per registered
 viewer available for the file. Order:
   1. In-file + walk-up config viewers (via read_all_viewers)
   2. `txt` (universal fallback)
-  3. `native` (browser direct)
+  3. `native` (browser direct); first for a pdf with no viewer from the tree
 
 Click switches active button + calls load_fn(target_html, file_path).
 First button = active (or the one matching active_name if provided).
@@ -37,6 +37,9 @@ from . import viewer_resolver as vr
 
 
 LoadFn = Callable[[str, str], None]
+
+#: Extensions Chromium renders itself and txt cannot read.
+NATIVE_FIRST = {".pdf"}
 
 
 def rebuild_viewer_bar(
@@ -56,9 +59,15 @@ def rebuild_viewer_bar(
                 w.deleteLater()
 
     names = list(vr.read_all_viewers(file_path, root))
+    # A pdf is not text: with no viewer from the tree, the txt fallback would
+    # only report an empty read. Chromium shows it itself, so native goes first.
+    native_first = not names and os.path.splitext(file_path)[1].lower() in NATIVE_FIRST
     if "txt" not in names:
         names.append("txt")
-    names.append("native")
+    if native_first:
+        names.insert(0, "native")
+    else:
+        names.append("native")
 
     file_dir = os.path.dirname(file_path)
     items: List[tuple] = []
@@ -66,7 +75,7 @@ def rebuild_viewer_bar(
         if n == "native":
             target = file_path
         else:
-            target = vr.find_viewer_html(file_dir, root, n)
+            target = vr.find_viewer_target(file_dir, root, n)
             if not target:
                 continue
         items.append((n, target))

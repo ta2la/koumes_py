@@ -54,6 +54,28 @@ _ROLE_LABEL_QSS = (
     " letter-spacing: 1px; padding: 2px 6px; }"
 )
 
+#: The p1 / p2 chip is not only a name - it is the button that makes its panel
+#: the one a file lands in when nobody says where. Checked state is loud on
+#: purpose: it decides where the next click goes, so it has to be readable out
+#: of the corner of the eye.
+_ROLE_BTN_QSS = (
+    "QPushButton { background: #fff; border: 1px solid #bbb; border-radius: 3px;"
+    " color: #4b5563; font: 700 11px 'ui-monospace', monospace;"
+    " letter-spacing: 1px; padding: 2px 8px; min-height: 18px; }"
+    "QPushButton:hover:!checked { background: #ede9fe; }"
+    "QPushButton:checked { background: #6d28d9; border-color: #4c1d95; color: #fff; }"
+)
+
+#: the whole strip of the active panel, so it reads without hunting the chip
+_ROLE_BAR_ACTIVE_QSS = (
+    "QWidget { background: #ede9fe; border-bottom: 2px solid #6d28d9; }"
+    "QPushButton { padding: 1px 8px; border: 1px solid #bbb; border-radius: 3px;"
+    " background: #fff; font-size: 11px; min-height: 18px; }"
+    "QPushButton:checked { background: #dbeafe; border-color: #2563eb; color: #1e40af;"
+    " font-weight: 700; }"
+    "QPushButton:hover:!checked { background: #e2e5ea; }"
+)
+
 _HEIGHT = 26
 
 
@@ -74,10 +96,14 @@ def button_label(btn: QPushButton) -> str:
 class BaseRoleBar(QWidget):
     """Name on the left, switch on the right. Subclasses fill the right."""
 
+    #: the role chip doubles as the "make this panel active" button
+    ROLE_CLICKABLE = False
+
     def __init__(self, role: str, tint: bool = False,
                  parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.role = role
+        self._tint = tint
         self.setStyleSheet(tinted(_ROLE_BAR_QSS) if tint else _ROLE_BAR_QSS)
         self.setFixedHeight(_HEIGHT)
 
@@ -88,11 +114,18 @@ class BaseRoleBar(QWidget):
         #: button whose name is on loan while the pointer rests on it
         self._peeked: Optional[QPushButton] = None
 
-        self.label = QLabel(role, self)
-        self.label.setStyleSheet(_ROLE_LABEL_QSS)
-        self.label.setToolTip(f"panel role: {role}" if role else "")
-        self.label.setAlignment(Qt.AlignmentFlag.AlignVCenter
-                                | Qt.AlignmentFlag.AlignLeft)
+        if self.ROLE_CLICKABLE and role:
+            self.label = QPushButton(role, self)
+            self.label.setCheckable(True)
+            self.label.setStyleSheet(_ROLE_BTN_QSS)
+            self.label.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.label.setToolTip(f"panel_active {role}")
+        else:
+            self.label = QLabel(role, self)
+            self.label.setStyleSheet(_ROLE_LABEL_QSS)
+            self.label.setToolTip(f"panel role: {role}" if role else "")
+            self.label.setAlignment(Qt.AlignmentFlag.AlignVCenter
+                                    | Qt.AlignmentFlag.AlignLeft)
         self.label.setVisible(bool(role))
         self._lay.addWidget(self.label)
         self._lay.addStretch(1)
@@ -101,6 +134,13 @@ class BaseRoleBar(QWidget):
 
     def _build_switch(self) -> None:
         """Fill the right-hand side. Nothing by default."""
+
+    def set_active(self, on: bool) -> None:
+        """Mark this panel as the one an unaddressed file opens in."""
+        if isinstance(self.label, QPushButton):
+            self.label.setChecked(on)
+        base = _ROLE_BAR_ACTIVE_QSS if on else _ROLE_BAR_QSS
+        self.setStyleSheet(tinted(base) if self._tint else base)
 
     def add_switch(self, widget: QWidget) -> None:
         self._lay.addWidget(widget)
@@ -130,6 +170,9 @@ class BaseRoleBar(QWidget):
         content, while a viewer button that cannot be read is a dead end. The
         stripped ones stay as targets, share the leftover width between them,
         and say what they are on hover.
+
+        Squeeze A is skipped where the name is also a button (p1 / p2, see
+        `ROLE_CLICKABLE`) - see below.
         """
         buttons = [b for b in self.switch_buttons() if b.isVisibleTo(self)]
         if not buttons:
@@ -153,13 +196,19 @@ class BaseRoleBar(QWidget):
         room = self.width()
         all_named = fixed + sum(full_w(b) + spacing for b in buttons)
 
-        show_label = bool(self.role) and all_named + label_w <= room
+        # Na p1 a p2 není ten chip jen jméno: je to přepínač, kterým se říká,
+        # kam padne soubor, o kterém nikdo neřekl kam. Takový ovládací prvek
+        # nesmí být první věc, která při zúžení zmizí - ustoupí až zobrazovače.
+        # Tam, kde je chip pořád jen popiska (dir, left), platí původní pořadí.
+        show_label = bool(self.role) and (self.ROLE_CLICKABLE
+                                          or all_named + label_w <= room)
+        room_btns = room - (label_w if show_label else 0)
         # Squeezed, exactly one button is named. Normally the active one; while
         # the pointer rests on another, that one instead. The swap is why the
         # row does not change width when a name is borrowed.
         wants = self._peeked if (self._peeked is not None
                                  and self._peeked in buttons) else None
-        named = buttons if all_named <= room else [
+        named = buttons if all_named <= room_btns else [
             b for b in buttons if (b is wants if wants is not None
                                    else b.isChecked())]
 
@@ -238,7 +287,7 @@ class BaseRoleBar(QWidget):
         Resetting on a button's own Leave would fight the swap that caused it:
         the button grows, slides out from under the pointer, Leave fires, the
         name goes back, the button shrinks, Enter fires again - the flicker
-        Petr saw. The bar as a whole is the boundary that does not move.
+        that was seen. The bar as a whole is the boundary that does not move.
         """
         self._peek(None)
         super().leaveEvent(ev)
@@ -290,7 +339,12 @@ class ViewerRoleBar(BaseRoleBar):
 
     The buttons come and go with the file, so the bar only holds the container;
     `viewer_bar.rebuild_viewer_bar()` fills it on every selection.
+
+    These two are also the only panels that can be *active*, so their name chip
+    is a button - see `BaseRoleBar.set_active`.
     """
+
+    ROLE_CLICKABLE = True
 
     def _build_switch(self) -> None:
         self.viewer_bar = QWidget(self)

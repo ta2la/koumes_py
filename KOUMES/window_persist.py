@@ -14,7 +14,7 @@
 # limitations under the License.
 """WindowPersist - save and restore the session across restarts.
 
-Python port of APPS/AI_T2LS/WindowPersist.h + the config helper from
+Python port of the C++ predecessor's WindowPersist.h + the config helper from
 base2/app_common/AppUtility.h::replaceOrAppendInConfig, grown to cover what the
 window was showing, not only where it stood.
 
@@ -22,6 +22,7 @@ Written to `<dir_config>/config.t2l` on quit, one replaceable line each:
 
     set_window <x> <y> <w> <h> <screenIdx> <screenW> <screenH>
     set_panels --dir <path> --p1 <file> --p1v <viewer> --p2 <file> --p2v <viewer>
+               --active <p1|p2>
     set_splitter <left> <dir> <p1> <p2>
 
 and executed again by `restore()` after the window is on screen. They are plain
@@ -137,7 +138,7 @@ class WindowPersist:
         if callable(state):
             st = state()
             parts = []
-            for key in ("dir", "p1", "p1v", "p2", "p2v"):
+            for key in ("dir", "p1", "p1v", "p2", "p2v", "active"):
                 if st.get(key):
                     parts.append(f"--{key} {cls._quote(st[key])}")
             if parts:
@@ -292,7 +293,7 @@ class WindowPersist:
             if restore is None:
                 return args.append_error("set_panels: no main window")
             state = {k: args.get_by_name(k).value
-                     for k in ("dir", "p1", "p1v", "p2", "p2v")}
+                     for k in ("dir", "p1", "p1v", "p2", "p2v", "active")}
             restore(state)
             args.append(state.get("dir", ""), "PANELS")
             return 0

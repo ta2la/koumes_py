@@ -14,7 +14,7 @@
 # limitations under the License.
 """FsBridge - sandboxed filesystem + [[link]] resolver, exposed to JS via QWebChannel.
 
-Python port of APPS/AI_T2LS/FsBridge.{h,cpp}.
+Python port of the C++ predecessor's FsBridge.{h,cpp}.
 """
 
 import base64
@@ -105,7 +105,7 @@ def _resolve_id_in_tree(id_: str, start_dir: str, root_abs: str) -> Optional[tup
                 dirs_to_scan.append(sub)
 
     cur = start_dir
-    while cur and cur.startswith(root_abs):
+    while cur and _is_inside(cur, root_abs):
         if cur not in visited:
             visited.add(cur)
             add_subtree(cur)
@@ -159,6 +159,7 @@ class FsBridge(QObject):
         return _is_inside(path, dir_)
 
     def _is_allowed(self, path: str) -> bool:
+        """Gate for browsing and for everything that changes the disk."""
         if not path:
             return True
         if _is_inside(path, self.allowed_dir_):
@@ -170,6 +171,18 @@ class FsBridge(QObject):
         except Exception:
             pass
         return False
+
+    def _is_readable(self, path: str) -> bool:
+        """Gate for showing a file. Wider than `_is_allowed` on purpose.
+
+        The sandbox says where koumes browses and what it may change, not what
+        it may render: a panel pointed at a file outside it already loads that
+        file straight from disk, because Chromium does not come through this
+        bridge. Refusing the read here did not keep the file out of sight - it
+        only broke the viewer that was supposed to render it, so the sandbox
+        edge showed up as an empty page instead of as a boundary.
+        """
+        return True
 
     def set_allowed_root(self, new_root: str) -> bool:
         cleaned = _clean_abs(new_root)
@@ -199,14 +212,36 @@ class FsBridge(QObject):
         files = sorted(e for e in entries if not os.path.isdir(os.path.join(p, e)))
         return dirs + files
 
+    @pyqtSlot(str, result="QStringList")
+    def viewers(self, path: str) -> List[str]:
+        """Viewer names a file can be shown with, best first.
+
+        The same list the viewer bar over a document offers: an in-file
+        `type: viewer` directive, then the walk-up `config.t2l` mapping for the
+        extension. Only names that actually resolve to an html on disk get
+        through - offering a viewer that is not there would be a dead button.
+        `native` is not in it: that is the panel handing the file to Chromium,
+        not a viewer the tree provides.
+        """
+        if not self._is_readable(path) or not os.path.isfile(path):
+            return []
+        from . import viewer_resolver as vr
+        out: List[str] = []
+        for name in vr.read_all_viewers(path, self.allowed_dir_):
+            if vr.find_viewer_target(os.path.dirname(path), self.allowed_dir_, name):
+                out.append(name)
+        return out
+
     @pyqtSlot(str, result=str)
     def read(self, path: str) -> str:
-        if not self._is_allowed(path):
+        if not self._is_readable(path):
             return ""
         try:
             with open(path, "r", encoding="utf-8") as f:
                 return f.read()
-        except OSError:
+        except (OSError, UnicodeDecodeError):
+            # A binary (pdf, zip, docx) is not text. Uncaught, the error
+            # escapes the pyqtSlot and PyQt aborts the whole process.
             return ""
 
     @pyqtSlot(str, str, result=bool)
@@ -219,6 +254,32 @@ class FsBridge(QObject):
             return True
         except OSError:
             return False
+
+    @pyqtSlot(str, result=str)
+    def repoKind(self, path: str) -> str:
+        """A repo is a dir with `.git`; its kind is the `remark` value cpp|app in
+        `<repo>/<repo>.t2l`, anything else is `other`. Not a repo: empty - same
+        rule as the dirview (CPPBROWSE)."""
+        if not self._is_readable(path) or not os.path.exists(os.path.join(path, ".git")):
+            return ""
+        kind, typ = "other", ""
+        try:
+            with open(os.path.join(path, os.path.basename(path.rstrip("/")) + ".t2l"),
+                      encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        typ = ""
+                        continue
+                    key, sep, value = line.partition(":")
+                    key, value = key.strip(), value.strip()
+                    if key == "type":
+                        typ = value
+                    elif typ == "remark" and key == "value" and value in ("cpp", "app"):
+                        kind = value
+        except OSError:
+            pass
+        return kind
 
     @pyqtSlot(str, result=bool)
     def isDir(self, path: str) -> bool:
@@ -318,27 +379,38 @@ class FsBridge(QObject):
 
         if hint_path and hint_path != "???":
             abs_ = _clean_abs(os.path.join(start_dir, hint_path))
-            if os.path.exists(abs_) and abs_.startswith(root_abs):
+            if os.path.exists(abs_) and _is_inside(abs_, root_abs):
                 ord_ = _find_id_ordinal_in_file(abs_, id_)
                 if ord_ > 0:
                     self.last_follow_log_ += f" | HINT_HIT abs={abs_} ord={ord_}"
                     open_target(abs_, ord_)
                     return
 
+        # Rewriting the link is a write to disk, so the same gate as `write` applies.
+        # Navigating to the target is not held back - that is only a read.
+        may_write = self._is_allowed(start_abs)
+        note = "" if may_write else " | NO_WRITE (start file outside sandbox)"
+
         found = _resolve_id_in_tree(id_, start_dir, root_abs)
         if found:
             found_abs, found_ord = found
             rel_path = os.path.relpath(found_abs, start_dir)
-            _rewrite_link_in_file(start_path, id_, rel_path)
-            self.last_follow_log_ += f" | SCAN_HIT abs={found_abs} ord={found_ord} rel={rel_path}"
+            if may_write:
+                _rewrite_link_in_file(start_path, id_, rel_path)
+            self.last_follow_log_ += f" | SCAN_HIT abs={found_abs} ord={found_ord} rel={rel_path}{note}"
             open_target(found_abs, found_ord)
         else:
-            _rewrite_link_in_file(start_path, id_, "???")
-            self.last_follow_log_ += " | NOT_FOUND"
+            if may_write:
+                _rewrite_link_in_file(start_path, id_, "???")
+            self.last_follow_log_ += f" | NOT_FOUND{note}"
 
     @pyqtSlot(str)
     def validateLinks(self, file_path: str) -> None:
         self.last_follow_log_ = f"validateLinks file={file_path}"
+        # The whole operation mutates the file, so it has no business outside the sandbox.
+        if not self._is_allowed(file_path):
+            self.last_follow_log_ += " | ABORT (outside sandbox)"
+            return
         try:
             with open(file_path, "r", encoding="utf-8") as f:
                 text = f.read()
@@ -369,7 +441,7 @@ class FsBridge(QObject):
             resolved = ""
             if hint_path and hint_path != "???":
                 abs_ = _clean_abs(os.path.join(start_dir, hint_path))
-                if os.path.exists(abs_) and abs_.startswith(root_abs):
+                if os.path.exists(abs_) and _is_inside(abs_, root_abs):
                     if _find_id_ordinal_in_file(abs_, id_) > 0:
                         resolved = hint_path
             if not resolved:
@@ -403,16 +475,20 @@ class FsBridge(QObject):
 
     @pyqtSlot(str, str, result=str)
     def saveInPlace(self, src_path: str, data_url: str) -> str:
-        """Overwrite `src_path` with a composite PNG (image + markup).
+        """Overwrite `src_path` with the composite - but copy it aside first.
 
-        First save takes a one-time backup at `src_path + '.orig'` - after that
-        the picture on disk carries the shapes baked in. The backup is what the
-        viewer loads next time (see `origOf`), so the shapes from the sidecar
-        do not stack on top of their own baked-in copies.
+        Every save puts what the picture was until now next to it under a free
+        name: `foo.copy.png`, then `foo.copy01.png`, `foo.copy02.png`, ... The
+        working path keeps its name, so whatever points at the picture keeps
+        pointing at the current version, and no save destroys the one before.
+
+        The very first copy is therefore the picture as it came - untouched by
+        any markup - and that is what the viewer draws over (see `origOf`);
+        otherwise the shapes would stack on their own baked-in copies.
 
         Base64 goes through its own slot rather than `write()` (that one is
         text-only) and rather than a command (a megabyte of base64 in the
-        command log helps nobody). Returns the path, or "" on failure.
+        command log helps nobody). Returns the path written, or "" on failure.
         """
         marker = ";base64,"
         i = data_url.find(marker)
@@ -423,10 +499,11 @@ class FsBridge(QObject):
         except (ValueError, binascii.Error):
             return ""
 
-        backup = src_path + ".orig"
+        prev = self._free_copy_name(src_path)
+        if not prev:
+            return ""
         try:
-            if not os.path.exists(backup):
-                shutil.copy2(src_path, backup)
+            shutil.copy2(src_path, prev)
             with open(src_path, "wb") as f:
                 f.write(blob)
         except OSError:
@@ -435,14 +512,38 @@ class FsBridge(QObject):
         CMD_SYS().execute_thread_safe(f'export_saved "{src_path}"', "js", -1, "HTML")
         return src_path
 
+    @staticmethod
+    def _free_copy_name(src_path: str) -> str:
+        """`foo.png` -> first free of `foo.copy.png`, `foo.copy01.png`, ...
+
+        The suffix goes before the extension on purpose: the copy is still a
+        picture and has to open like one, in the same viewer as the original.
+        """
+        base, ext = os.path.splitext(src_path)
+        first = base + ".copy" + ext
+        if not os.path.exists(first):
+            return first
+        for n in range(1, 100):
+            cand = base + ".copy%02d" % n + ext
+            if not os.path.exists(cand):
+                return cand
+        return ""
+
     @pyqtSlot(str, result=str)
     def origOf(self, src_path: str) -> str:
-        """Return the untouched source, when a `.orig` backup exists.
+        """Return the untouched picture, when a copy of it survives.
 
         The redline viewer draws over a background. Once a save has overwritten
         the picture with a composite, drawing over `src_path` again would stack
-        the shapes on top of their baked-in copies. Loading the backup instead
-        keeps the composition idempotent.
+        the shapes on top of their baked-in copies. Loading the first copy
+        instead keeps the composition idempotent. `.orig` is the older name for
+        the same thing and still wins where it exists.
         """
         backup = src_path + ".orig"
-        return backup if os.path.exists(backup) else src_path
+        if os.path.exists(backup):
+            return backup
+        # Since saves copy aside instead of taking one `.orig`, the untouched
+        # picture is the *first* copy ever made - the one without a number.
+        base, ext = os.path.splitext(src_path)
+        first = base + ".copy" + ext
+        return first if os.path.exists(first) else src_path
