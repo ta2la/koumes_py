@@ -17,8 +17,9 @@ interaction layer (`hg_interact`: Cmd, CmdQueue, Scene, WidgetInteract; entities
 `hg_display`) with MicroStation logic, not a 1:1 port.
 
 Split into two halves:
-- **without Qt:** `modes`, `cmds`, `app` - the logic, usable and testable without a window;
-- **Qt:** `entities`, `scene`, `panel`, `view` - drawing and the widget.
+- **without Qt:** the modes, the commands and the root - the logic, usable and testable
+  without a window;
+- **Qt:** entities, scene, panel, view - drawing and the widget.
 
 ## Decisions
 
@@ -43,19 +44,20 @@ Split into two halves:
 
 ## Files
 
+**One class per file**, the file named after the class in snake_case (`AppMode_select` ->
+`app_mode_select`, `RefColScene` -> `ref_col_scene`). Module-level helpers and constants
+live in the file of the class they belong to (named below). The groups below are only
+for reading; they are not files.
+
 ### `__init__`
 
-Exports: from `modes` - `AppMode`, `AppMode_pan`, `AppMode_select`, `AppMode_zoom`,
-`AppModeStack`, `box_ratio`; from `cmds` - `CmdsInteractive`; from `app` -
-`InteractiveApp`; from `entities` - `C_BG`, `C_SEL`, `Canvas`, `Entity`, `EntityBox`,
-`EntityCircle`, `EntityHandle`, `EntityMark`, `EntityLine`, `EntityText`, `make_pen`,
-`on_layer`, `on_screen`; from `scene` - `RefColScene`, `RefScene`, `ents_bound`,
-`paint_ents`; from `panel` - `FloatPanel`, `FlowLayout`; from `view` - `C_DYN`,
-`DiagCanvas`, `InteractiveView`.
+Exports every class of the module, and `box_ratio`, `C_BG`, `C_SEL`, `C_DYN`,
+`make_pen`, `on_layer`, `on_screen`, `ents_bound`, `paint_ents`. Users import from the
+package, never from its files.
 
-### `modes` - modes and their stack (no Qt)
+### Modes and their stack (no Qt): `app_mode`, `app_mode_stack`, `app_mode_select`, `app_mode_pan`, `app_mode_zoom`
 
-Constant `C_MARK = #e2d2f3`: background of a content line that has its own object.
+Constant `C_MARK = #e2d2f3` (in `app_mode_select`): background of a content line that has its own object.
 
 **`AppMode`** - base of a mode.
 - class fields: `name = "void"`, `snap = True` (points into the mode snap to the grid);
@@ -111,7 +113,7 @@ Constant `C_MARK = #e2d2f3`: background of a content line that has its own objec
   the mouse returns to the grabbed place);
 - `enter_reset`: `finish()`.
 
-**`box_ratio(a, b, ratio) -> (x1, y1, x2, y2)`** - box from corner `a` towards `b`,
+**`box_ratio(a, b, ratio) -> (x1, y1, x2, y2)`** (in `app_mode_zoom`) - box from corner `a` towards `b`,
 widened to `ratio` = width/height (as CAD `Cmd_zoomBox::newDisplay_`): `dx, dy = b - a`,
 each at least 1e-9 in size (sign kept); if `ratio > |dx/dy|` then `dx = sign(dx)*|dy*ratio|`
 else `dy = sign(dy)*|dx/ratio|`; result `(a.x, a.y, a.x+dx, a.y+dy)`.
@@ -125,7 +127,7 @@ else `dy = sign(dy)*|dx/ratio|`; result `(a.x, a.y, a.x+dx, a.y+dy)`.
 - `enter_reset`: a corner -> drop it with the dynamics; none -> `finish()`;
 - `busy()`: a corner exists.
 
-### `cmds` - the commands every interactive application has (no Qt)
+### The commands every interactive application has (no Qt): `cmds_interactive`
 
 **`CmdsInteractive(prefix)`** - derives from `cmd_sys.Cmds(prefix, POOL.lock)`; field
 `app` (the root, set by `InteractiveApp`). Registers, with these descriptions:
@@ -148,7 +150,7 @@ else `dy = sign(dy)*|dx/ratio|`; result `(a.x, a.y, a.x+dx, a.y+dy)`.
 - `mode(cls, once=False)` - returns the handler of a command that starts a mode;
 - an application subclasses it and registers its own commands next to these.
 
-### `app` - the root (no Qt)
+### The root (no Qt): `interactive_app`
 
 **`InteractiveApp(prefix, default_mode, cmds, ws_default=0)`**
 - fields: `prefix`, `queue = AppModeStack(default_mode)`, `cmds` (and `cmds.app = self`),
@@ -171,9 +173,9 @@ else `dy = sign(dy)*|dx/ratio|`; result `(a.x, a.y, a.x+dx, a.y+dy)`.
 - the application adds `drag_begin(x, y, view)` (called by the view when a drag starts:
   move, resize or pan - its own decision).
 
-### `entities` - drawn elements (Qt)
+### Drawn elements (Qt): `entity`, `canvas`, `entity_line`, `entity_box`, `entity_circle`, `entity_text`, `entity_mark`, `entity_handle`
 
-Constants: `C_SEL = #c2407e` (selection), `C_BG = #ffffff` (background, inside of an empty
+Constants (in `entity`, with `make_pen`, `on_layer`, `on_screen`): `C_SEL = #c2407e` (selection), `C_BG = #ffffff` (background, inside of an empty
 circle); `LINE_STYLES`: `solid`, `dash`, `dot`.
 
 - **`Canvas(painter, scale)`** - where entities draw: a painter already in scene
@@ -198,17 +200,17 @@ circle); `LINE_STYLES`: `solid`, `dash`, `dot`.
 - **`EntityHandle(at)`** - a handle: square of `PX = 7` screen pixels, outline `C_SEL`
   1 px, inside `C_BG`; bound = the point.
 
-### `scene` - a collection that is drawn (Qt)
+### A collection that is drawn (Qt): `ref_scene`, `ref_col_scene`
 
 - **`RefScene(obj, parent)`** (a `Ref`) - holds the object's entities `ents`;
   `repaint()`: `ents = []`, `obj.display(ents)`, `parent.dirty = true`;
 - **`RefColScene`** (a `RefCol`) - `make_ref(obj)` makes a `RefScene`;
   `entities()` = entities of all refs sorted by `layer` (stable sort, higher on top);
   `ordered()` = objects sorted by `obj.Z` (the pick order);
-- **`paint_ents(painter, ents, scale)`** - draws them through one `Canvas`;
+- **`paint_ents(painter, ents, scale)`** (in `ref_col_scene`, with `ents_bound`) - draws them through one `Canvas`;
 - **`ents_bound(ents)`** - union of their bounds.
 
-### `panel` - floating window inside the view (Qt)
+### Floating window inside the view (Qt): `flow_layout`, `float_panel`
 
 - **`FlowLayout(parent=None, spacing=3)`** - items flow left to right and wrap like words;
   zero margins; height for width; minimum size = the largest item; placing goes by size
@@ -227,9 +229,9 @@ circle); `LINE_STYLES`: `solid`, `dash`, `dot`.
     user resized it, it keeps `SIZE`; until the user moved it, it sits top right
     (`MARGIN` from the edges); always clamped into the view; raised on top.
 
-### `view` - the Qt view (Qt)
+### The Qt view (Qt): `diag_canvas`, `interactive_view`
 
-Constant `C_DYN = #2b7bd9` (dynamics).
+Constant `C_DYN = #2b7bd9` (dynamics, in `interactive_view`).
 
 **`DiagCanvas(view)`** - the drawing surface.
 - fields `scale = 1`, `off = (0, 0)`: screen = scene * scale + off; mouse tracking on;

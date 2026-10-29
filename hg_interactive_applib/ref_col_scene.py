@@ -1,24 +1,10 @@
-"""hg_interactive_app.scene - a collection that is drawn (view): refs keep entities."""
+"""hg_interactive_applib.ref_col_scene - a collection that is drawn (view): refs keep entities."""
 
 from PyQt6.QtCore import QRectF
+from hg_pool_py import RefCol
 
-from hg_pool_py import Ref, RefCol
-
-from .entities import Canvas
-
-
-#=============================================================================
-class RefScene(Ref):
-#! Ref ve scene: drzi entity objektu; repaint je prekresli jen pro nej.
-#=============================================================================
-    def __init__(self, obj, parent):
-        super().__init__(obj, parent)
-        self.ents = []
-
-    def repaint(self):
-        self.ents = []
-        self.obj.display(self.ents)
-        self.parent.dirty = True
+from .canvas import Canvas
+from .ref_scene import RefScene
 
 
 #=============================================================================

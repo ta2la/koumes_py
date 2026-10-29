@@ -1,4 +1,4 @@
-"""hg_interactive_app.cmds - commands every interactive application has.
+"""hg_interactive_applib.cmds_interactive - commands every interactive application has.
 
 CmdsInteractive(cmd_sys.Cmds) registers, under the application's prefix:
 
@@ -24,7 +24,9 @@ own commands next to these.
 from cmd_sys import Cmds
 from hg_pool_py import POOL, SELSET, SOURCES
 
-from .modes import AppMode_pan, AppMode_select, AppMode_zoom
+from .app_mode_pan import AppMode_pan
+from .app_mode_select import AppMode_select
+from .app_mode_zoom import AppMode_zoom
 
 
 class CmdsInteractive(Cmds):

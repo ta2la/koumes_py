@@ -1,4 +1,4 @@
-"""hg_interactive_app.app - root of an interactive application.
+"""hg_interactive_applib.interactive_app - root of an interactive application.
 
 InteractiveApp holds the mode stack, the commands (a CmdsInteractive on its own
 CmdSys), the views and the active view (where input goes). Mouse input becomes
@@ -11,7 +11,7 @@ and keeps one instance (its secondary singleton, application scope only).
 
 import weakref
 
-from .modes import AppModeStack
+from .app_mode_stack import AppModeStack
 
 
 class InteractiveApp:
