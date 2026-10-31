@@ -1,0 +1,4307 @@
+#!/usr/bin/env python3
+# clmon4 - okno s agenty nad tmuxem + minikoumes: seznam, terminal agenta, panely p1, p2, ...
+#
+# POPIS - co clmon4 je; z tohohle by mel jit program napsat znovu (2026-10-15).
+# Je to CIL: kod ho zatim nedohani (do prestavby plati Rozlozeni a pravidlo 1 nize).
+# Kdo meni chovani, prepise nejdriv tenhle popis.
+#
+#   Panel je terminal pro cokoli.
+#
+#   0. Terminalova aplikace. clmon4 je nekolik oken terminalu, ktera spolu kooperuji
+#      a dohromady tvori jeden program - cmdline koumes. Zadne neni hlavni; pohromade
+#      je drzi jeden tmux server (socket `clmon4`).
+#      Jak kooperuji:
+#        - sdileny stav: vsechno bezi v tom jednom tmuxu a stav je v jeho promennych
+#          (@role, @agent, co je v panelu, zamek); kazde okno vidi totez,
+#        - prikazy: vsechno se ridi pres `clmon4 --neco` - klik v liste, jine okno i agent
+#          z libovolneho shellu jdou touz cestou. Jedno rozhrani pro cloveka i agenta,
+#          stejne jako koumes,
+#        - programy v panelech: kdo umi websocket (WS_RUN, dnes CPPBROWSE), posloucha na
+#          prvnim volnem portu od PANEL_PORT + 1 (port jde s programem i pri prohozeni
+#          panelu [<] [>]; zjisti se pres --where / --port pN) a odpovida na
+#          chroma_dir / chroma_file / chroma_line;
+#          okoli se ho tak zepta, co ukazuje, a on sam posle soubor do panelu vpravo.
+#
+#   1. Celek. Panely stoji vedle sebe, kazdy je svisly pruh pres celou vysku: vlevo
+#      jeden levy, vpravo n panelu p1 ... pn.
+#
+#   2. Co maji panely spolecne. Panel = samostatne okno terminalu. Nahore pas, pod nim
+#      obsah. Deleni je jen nad sebou; vedle sebe se uvnitr okna nedeli nic. Sirku
+#      a polohu okna ridi uzivatel (pod Waylandem je program nastavit neumi), clmon4 si
+#      zadne sirky nepamatuje ani nepocita.
+#
+#   3. Levy panel - vyjimka. Je jen jeden, nema cislo a nezavira se (zavrit jeho =
+#      ukoncit clmon4). Tri casti nad sebou:
+#        - menu: globalni veci - [close] / [exit actual], [config], tlacitka koumesu, otevrene a dalsi volny panel,
+#          [pindani], persony a workeri, kteri nebezi (klik pusti). Pevna vyska.
+#        - seznam: bezici agenti, klik prepne agenta dole. Vlevo avatar agenta, ktery je
+#          dole, kresli ho tentyz program (chafa) - neni to samostatny terminal. Vyska
+#          podle poctu agentu, pri mnoha se posouva; menu nad nim zustava.
+#        - agent: terminal vybraneho agenta, zbytek okna.
+#
+#   4. Pravy panel pN. Dve casti nad sebou:
+#        - pas: cislo panelu, tlacitka (zamek, refresh, konzole, [x]) a cesta k tomu, co
+#          panel ukazuje, s [copy]; pod ni seda appka (helix, CPPBROWSE · port). Menu
+#          i cesta jsou o temze panelu a meni se spolu, proto jeden terminal.
+#        - obsah: libovolny program - prohlizec (text, md, obrazky, html), micro, helix,
+#          CPPBROWSE, bash. Ma terminal cely pro sebe.
+#
+#   5. Rozhrani - jak se s panely zachazi zvenku (hlavne agenti):
+#        - `--tp1 SOUBOR [--line N]` ukaze soubor v p1 (tp2 ... stejne); panel se otevre,
+#          kdyz neni. `--edit` / `--hx` misto prohlizece editor, `--run 'PRIKAZ'` program.
+#        - zamceny panel se neprepisuje: obsah jde do dalsiho nezamceneho vpravo, nebo
+#          do noveho.
+#        - `--open-right PANEL SOUBOR[:N[:M]]` otevre soubor v panelu vpravo od PANEL
+#          (tak posila CPPBROWSE), `--tx1` panel zavre.
+#        - `--where` rekne, co je v panelech a ktery agent je dole.
+#        - `--start JMENO|worker` pusti agenta na pozadi, bez prepnuti.
+#
+# Usage:
+#   clmon4             # otevrit (nebo se pripojit k bezicimu); q v seznamu = odpojit
+#   clmon4 --kill      # ukoncit vsechno, co v clmon4 bezi (agenti jdou pak znovu s --continue)
+#   clmon4 --reload    # pustit znovu jen seznam nahore (po zmene kodu); agenti bezi dal
+#   clmon4 --tp1 SOUBOR [--line N]   # ukazat soubor v panelu p1 (tp2, tp3 ... stejne), pripadne
+#                                    # na radku N; panel se otevre, kdyz neni
+#   clmon4 --tp1 SOUBOR --edit       # otevrit ho v p1 v editoru (micro); po zavreni zpet prohlizec
+#   clmon4 --tp1 SOUBOR --hx         # otevrit ho v p1 v helixu (na kod)
+#   clmon4 --tp1 --run 'PRIKAZ'      # pustit v p1 libovolny program (napr. CPPBROWSE)
+#   clmon4 --open-right PANEL SOUBOR # otevrit soubor v helixu v panelu vpravo od tmux panelu
+#                                    # PANEL (napr. z CPPBROWSE); kdyz tam zadny neni, zalozi novy
+#                                    # SOUBOR:25 = na radku 25, SOUBOR:25:40 = vybrat radky 25-40
+#   clmon4 --tx1                     # zavrit panel p1 (tx2 ... stejne)
+#                                    # zamceny panel (🔒 v jeho liste) se neprepisuje: soubor
+#                                    # pro nej jde do dalsiho nezamceneho vpravo, nebo do noveho
+#   clmon4 --where                   # co je prave v panelech a ktery agent je dole
+#   clmon4 --port p1                 # port programu v panelu p1 (jen cislo, pro skripty)
+#   clmon4 --in_test p1 KOUMES       # appka v p1: okynko s avatarem, ze na ni agent testuje (off = pryc)
+#   clmon4 --in_test p1 KOUMES --msg "co testuju\n[x] hotove\n[ ] dalsi"   # a co testuje (\n = novy radek)
+#   clmon4 --start worker            # pustit volneho workera s nejnizsim cislem (na pozadi)
+#   clmon4 --start JMENO|CISLO       # pustit personu nebo workera na pozadi, bez prepnuti
+#   clmon4 --free-worker             # jen rict, ktery worker je volny
+#   clmon4 -h          # help
+#
+# Rozlozeni:   panely vedle sebe pres celou vysku. Levy panel = seznam agentu a pod nim
+#              terminal aktivniho agenta. Vpravo od nej cislovane panely p1, p2, ... Kazdy
+#              sloupec ma nahore svou listu s [x] na zavreni; nad seznamem je menu s tlacitky
+#              [close] [config] a tlacitka koumesu z config.t2l, pak otevrene panely oranzove (klik
+#              do panelu skoci) a sedy dalsi volny (klik ho otevre, nejnizsi volne cislo). Po zavreni muzou cisla jit na preskacku (p1, p3).
+#              Pod tlacitky je radek s personami a workery T1-T6, kteri nebezi: klik
+#              na jmeno pusti. Worker startuje cisty a v auto rezimu, persona s --continue.
+#              [close] je jen kdyz nebezi zadny agent: ukonci clmon4, v okne zustane
+#              obycejny shell. Do te doby je misto nej [exit actual] = /exit zobrazenemu agentovi.
+#              [config] = appka config_view: kde co je na tomhle stroji (config.t2l).
+# Lista:       nad kazdym panelem pN zamek [🔒] (zamceny panel se neprepisuje, obsah jde
+#              do dalsiho) a [x] panel zavre. [pindani] je v menu nad seznamem: ukaze se
+#              v prvnim nezamcenem panelu zleva (nebo v novem), dalsi klik vrati puvodni obsah.
+#              Hrany mezi panely jdou tahat mysi - viz pravidlo 1 nize.
+# Seznam:      jen bezici agenti. klik na radek prepne · najeti mysi na kolecko stavu
+#              ukaze na tom radku cerne na zlutem /exit, klik na nej agenta ukonci
+#              · dvojklik na radek taky posle /exit
+#              sipky posouvaji ▶ po bezicich · Enter dolu k agentovi · 1-9 prepnout nebo pustit
+#              0 pindani · p dalsi panel · + - vyska seznamu · z cele okno · q odpojit
+# pN:          text s cisly radku · md vykresleny vcetne vlozenych obrazku · obrazky
+#              (pres chafa) · html prevedene na text s obrazky. s = prepnout na zdroj.
+#              Obrazek v textu je nejdriv maly (tretina sirky), w = na celou sirku a zpet.
+#              e = otevrit v editoru (micro: Ctrl+S ulozit, Ctrl+Q zavrit, mys funguje).
+#              V terminalu agenta: tazeni mysi oznaci a zkopiruje do schranky, vyber
+#              zustane chvili videt. Ctrl+C tam nekopiruje.
+#              Tlacitko [x], [pindani], novy soubor do panelu i [close] editor slusne ukonci;
+#              kdyz ma neulozene zmeny, zepta se na ulozeni a panel zustane.
+#              V editoru: co oznacis mysi, je hned ve schrance; po oznaceni klavesnici
+#              kopiruje Alt+C (Ctrl+C si bere gnome-terminal), Ctrl+V vklada.
+#              sipky, PgUp, PgDn, Home, End, kolecko · r nacist znovu · q zavrit
+#              Soubor se nehlida: obnovuje se tlacitkem [🔃] v liste panelu (nebo r).
+#              [>_] udela z panelu konzoli (bash v adresari toho, co ukazoval), znovu = zpet.
+# Odkudkoli:   F12 cislo = agent · F12 0 = pindani · F12 p = dalsi panel
+#              F12 sipky = mezi panely · F12 z = terminal agenta pres cele okno
+#
+# Agenti bezi uvnitr tmuxu, takze preziji zavreni okna - `clmon4` se k nim vrati.
+# Jmena a adresare se berou z projects.conf (stejne jako clswp), stav, model a
+# kontext z clmon. tmux bezi na vlastnim socketu `clmon4` s clmon4.tmux.conf.
+#
+# PRAVIDLA - jak se clmon4 chova a proc. Sem se pridava kazda nova vec a kazda stara,
+# ktera se znovu otevrela; v kodu se na ne odkazuje cislem ("pravidlo 1"). Kdo pravidlo
+# meni, prepise ho tady, ne jen v kodu.
+#
+#   1. Sirka panelu (2026-10-15). Hrana meni jen sva dve okna, nic jineho:
+#        - vnitrni hrana meni jen dva sousedni sloupce,
+#        - vnejsi hrana okna terminalu meni jen krajni sloupec (prava hrana posledni panel,
+#          leva hrana levy sloupec); pri zmensovani, kdyz krajni narazi na minimum, bere
+#          se dalsimu smerem dovnitr, jeden po druhem,
+#        - zadny sloupec neni uzsi nez MIN_PX (100 px); pod to se nejde,
+#        - nikdy nic v pomeru, nic se nepamatuje mimo to, co je na obrazovce: novy panel ma
+#          P1_W sloupcu, okno se o nej rozsiri, ostatni sloupce zustanou, jak jsou.
+#      Proc: driv tu bezel prepocet vsech sloupcu v pomeru, hadani tazeni, tri pameti sirek
+#      a druhe minimum - hrana po pusteni skakala zpet. tmux sam meni pri tazeni jen dva
+#      sousedy; jeho rozdeleni pri zmene okna prepise hook client-resized (fit).
+#      Omezeni: behem tazeni tmux skript nepousti, minimum se vynuti po pusteni mysi
+#      (clamp na MouseDragEnd1Border a hlidac seznamu kazdou vterinu).
+#      Kod: columns, edge_fit, fit, clamp, vazby MouseDrag1Border a hook v KEYS.
+
+import curses
+import datetime
+import glob
+import json
+import locale
+import os
+import re
+import select
+import shlex
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+import unicodedata
+
+sys.dont_write_bytecode = True
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+ME = os.path.realpath(__file__)
+HOME = os.path.expanduser("~")
+
+
+# ==== prevzato z clmon (driv se nacital jako knihovna; clmon5 je samostatny) ====
+SESS_DIR = os.path.join(HOME, ".claude", "sessions")
+PROJ_DIR = os.path.join(HOME, ".claude", "projects")
+# agenti (seznam, chat) zustavaji mimo konzoli, cesta je v config.t2l
+sys.path.insert(0, SCRIPT_DIR)
+import config  # noqa: E402       # config.t2l: kde co je na tomhle stroji; chybi -> vytvori se prazdny
+CONFIG_FILE = ""       # seznam agentu; plni use_config
+WORKERS_DIR = ""
+TEMP_ICONS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣"]
+
+RE_RECV = re.compile(r'<cross-session-message\b([^>]*)>\n?(.*?)</cross-session-message>', re.S)
+RE_ATTR = re.compile(r'([\w-]+)="([^"]*)"')
+# velikost kontextu = vstup posledni odpovedi: novy vstup + cteni z cache + zapis do cache
+RE_USAGE = re.compile(rb'"usage":\{(.{0,300})', re.S)
+RE_TOK = {k: re.compile(b'"' + k + rb'":(\d+)') for k in
+          (b"input_tokens", b"cache_read_input_tokens", b"cache_creation_input_tokens")}
+RE_MODEL = re.compile(rb'"model":"([^"]+)"')
+
+
+# ---- sirka znaku v terminalu ------------------------------------------------
+# Emoji zabira dve bunky, variation selector a combining znaky zadnou. Znak
+# nasledovany VS16 (U+FE0F) se kresli jako emoji, tedy na dve bunky (⚠️, 1️⃣).
+def cwidth(s):
+    w = 0
+    chars = list(s)
+    for i, ch in enumerate(chars):
+        o = ord(ch)
+        if o in (0xFE0F, 0xFE0E, 0x200D) or unicodedata.combining(ch) \
+                or unicodedata.category(ch) in ("Me", "Mn", "Cf"):
+            continue
+        nxt = chars[i + 1] if i + 1 < len(chars) else ""
+        if nxt == "️":
+            w += 2
+        elif unicodedata.east_asian_width(ch) in ("W", "F"):
+            w += 2
+        else:
+            w += 1
+    return w
+
+
+def cut(s, width):
+    """Oriznout na danou sirku bunek; co se nevejde, konci znakem …"""
+    if cwidth(s) <= width:
+        return s
+    out, w = "", 0
+    for ch in s:
+        cw = cwidth(out + ch) - w
+        if w + cw > width - 1:
+            break
+        out += ch
+        w += cw
+    return out + "…"
+
+
+def wrap(s, width):
+    """Zalomit text na radky dane sirky, po slovech, dlouha slova natvrdo."""
+    lines = []
+    for para in s.split("\n"):
+        cur = ""
+        for word in para.split(" "):
+            cand = word if not cur else cur + " " + word
+            if cwidth(cand) <= width:
+                cur = cand
+                continue
+            if cur:
+                lines.append(cur)
+            while cwidth(word) > width:
+                part = cut(word, width + 1)[:-1] or word[:1]
+                lines.append(part)
+                word = word[len(part):]
+            cur = word
+        lines.append(cur)
+    return lines
+
+
+# ---- jmena ------------------------------------------------------------------
+def load_conf_names():
+    """cesta -> '<ikona> <jmeno>' z projects.conf (stejne jako visacky v clswp)"""
+    names = {}
+    try:
+        text = open(CONFIG_FILE, encoding="utf-8").read()
+    except OSError:
+        return names
+    for block in re.split(r"\n\s*\n", text):
+        kv = {}
+        for line in block.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or ":" not in line:
+                continue
+            k, v = line.split(":", 1)
+            kv[k.strip()] = v.strip()
+        if "path" in kv:
+            p = os.path.expanduser(kv["path"]).rstrip("/")
+            nm = kv.get("name") or os.path.basename(p)
+            names[p] = (kv.get("icon", "") + " " + nm).strip()
+    for i, ic in enumerate(TEMP_ICONS if WORKERS_DIR else [], 1):
+        names[os.path.join(WORKERS_DIR, "TEMP%d" % i)] = "%s T%d" % (ic, i)
+    return names
+
+
+def slug(path):
+    return re.sub(r"[^A-Za-z0-9]", "-", path)
+
+
+def short_path(p):
+    return "~" + p[len(HOME):] if p.startswith(HOME) else p
+
+
+# ---- bezici sessions ----------------------------------------------------------
+def alive(pid):
+    try:
+        cmd = open("/proc/%d/cmdline" % pid, "rb").read().split(b"\0")
+    except OSError:
+        return False
+    # proces na pozadi si prepise jmeno na "claude bg-spare"
+    return bool(cmd) and os.path.basename(cmd[0]).split(b" ")[0] == b"claude"
+
+
+def load_agents(conf):
+    sess = []
+    for f in glob.glob(os.path.join(SESS_DIR, "*.json")):
+        try:
+            d = json.load(open(f, encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        pid = d.get("pid")
+        if isinstance(pid, int) and alive(pid):
+            sess.append(d)
+    # Zaparkovana session: okno zustava, ale praci prevzal proces na pozadi (kind bg,
+    # jobId = parkedJobId okna) a pise novy prepis. Stav, prepis a model brat z nej,
+    # a proces na pozadi neukazovat jako dalsiho agenta.
+    jobs = {d.get("jobId"): d for d in sess if d.get("kind") == "bg" and d.get("jobId")}
+    parked = set()
+    for d in sess:
+        job = jobs.get(d.get("parkedJobId"))
+        if job:
+            parked.add(id(job))
+            for k in ("sessionId", "status", "statusUpdatedAt"):
+                if job.get(k):
+                    d[k] = job[k]
+    agents = []
+    for d in sess:
+        if id(d) in parked:
+            continue
+        pid = d.get("pid")
+        cwd = d.get("cwd", "")
+        name = d.get("name") or conf.get(cwd.rstrip("/")) or os.path.basename(cwd)
+        tr = os.path.join(PROJ_DIR, slug(cwd), (d.get("sessionId") or "") + ".jsonl")
+        if not os.path.exists(tr):
+            hit = glob.glob(os.path.join(PROJ_DIR, "*", (d.get("sessionId") or "?") + ".jsonl"))
+            tr = hit[0] if hit else ""
+        agents.append({
+            "pid": pid, "name": name, "cwd": cwd,
+            "status": d.get("status", "?"),
+            "since": (d.get("statusUpdatedAt") or 0) / 1000.0,
+            "transcript": tr,
+            "sock": d.get("messagingSocketPath") or "",
+        })
+    agents.sort(key=lambda a: a["name"])
+    return agents
+
+
+# ---- zpravy z prepisu -----------------------------------------------------------
+def ts_of(d):
+    t = d.get("timestamp")
+    if not t:
+        return 0.0
+    try:
+        return datetime.datetime.fromisoformat(t.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
+
+
+class Log:
+    """Cte prepisy prirustkove: pamatuje si, kam v kazdem souboru dosel."""
+
+    def __init__(self, hours):
+        self.hours = hours
+        self.offsets = {}
+        self.owner = {}       # prepis -> jmeno session, ktera ho pise
+        self.msgs = []        # dict(t, frm, to, text, sent, recv)
+        self.addr = {}        # "uds:/.../<pid>.sock" -> jmeno session
+        self.usage = {}       # prepis -> (kontext v tokenech, model) z posledni odpovedi
+
+    def _usage(self, f, raw):
+        """Posledni odpoved hlavniho vlakna nese, kolik tokenu slo na vstup."""
+        if b'"type":"assistant"' not in raw or b'"isSidechain":true' in raw:
+            return
+        mu = RE_USAGE.search(raw)
+        if not mu:
+            return
+        ctx = 0
+        for rx in RE_TOK.values():
+            mt = rx.search(mu.group(1))
+            if mt:
+                ctx += int(mt.group(1))
+        mm = RE_MODEL.search(raw)
+        model = mm.group(1).decode("utf-8", "replace") if mm else ""
+        if ctx and model != "<synthetic>":
+            self.usage[f] = (ctx, model)
+
+    def name(self, who):
+        """Odpoved jde na adresu socketu, ne na jmeno - prelozit, kdyz ho zname."""
+        return self.addr.get(who, who)
+
+    def files(self, agents):
+        horizon = time.time() - self.hours * 3600
+        out = {a["transcript"] for a in agents if a["transcript"]}
+        for f in glob.glob(os.path.join(PROJ_DIR, "*", "*.jsonl")):
+            try:
+                if os.path.getmtime(f) >= horizon:
+                    out.add(f)
+            except OSError:
+                pass
+        return out
+
+    def update(self, agents, conf):
+        for a in agents:
+            if a["transcript"]:
+                self.owner[a["transcript"]] = a["name"]
+            if a["sock"]:
+                self.addr["uds:" + a["sock"]] = a["name"]
+        horizon = time.time() - self.hours * 3600
+        for f in self.files(agents):
+            try:
+                size = os.path.getsize(f)
+            except OSError:
+                continue
+            off = self.offsets.get(f, 0)
+            if size < off:
+                off = 0
+            if size == off:
+                continue
+            with open(f, "rb") as fh:
+                fh.seek(off)
+                chunk = fh.read()
+            end = chunk.rfind(b"\n") + 1
+            self.offsets[f] = off + end
+            for raw in chunk[:end].splitlines():
+                if b'"usage":{' in raw:
+                    self._usage(f, raw)
+                if b"SendMessage" not in raw and b"cross-session-message" not in raw:
+                    continue
+                try:
+                    d = json.loads(raw)
+                except ValueError:
+                    continue
+                t = ts_of(d)
+                if t < horizon:
+                    continue
+                me = self.owner.get(f) or conf.get((d.get("cwd") or "").rstrip("/")) \
+                    or os.path.basename(d.get("cwd") or "?")
+                self._take(d, t, me)
+        self.msgs.sort(key=lambda m: m["t"])
+
+    def _take(self, d, t, me):
+        m = d.get("message") or {}
+        c = m.get("content")
+        if d.get("type") == "assistant" and isinstance(c, list):
+            for x in c:
+                if x.get("type") == "tool_use" and x.get("name") == "SendMessage":
+                    inp = x.get("input") or {}
+                    text = inp.get("message") or ""
+                    if not text:
+                        continue
+                    self._add(t, me, inp.get("to", "?"), text, sent=True)
+        elif d.get("type") == "user":
+            texts = [c] if isinstance(c, str) else \
+                [x.get("text", "") for x in (c or []) if isinstance(x, dict)]
+            for s in texts:
+                for mm in RE_RECV.finditer(s or ""):
+                    attrs = dict(RE_ATTR.findall(mm.group(1)))
+                    frm = attrs.get("from-name") or attrs.get("from", "?")
+                    if attrs.get("from") and attrs.get("from-name"):
+                        self.addr[attrs["from"]] = attrs["from-name"]
+                    self._add(t, frm, me, mm.group(2).strip(), sent=False)
+
+    def _add(self, t, frm, to, text, sent):
+        # Tataz zprava lezi u odesilatele i u prijemce. Sloucit, kdyz sedi
+        # zacatek textu a cas je do deseti minut od sebe.
+        key = text.strip()[:120]
+        for m in self.msgs:
+            # stejny text vic prijemcum (rozeslani vsem) jsou ruzne zpravy
+            if m["key"] == key and abs(m["t"] - t) < 600 and self.name(m["to"]) == self.name(to):
+                if sent:
+                    m["sent"] = True
+                    m["to"] = to
+                    m["t"] = min(m["t"], t)
+                else:
+                    m["recv"] = True
+                return
+        self.msgs.append({"t": t, "frm": frm, "to": to, "text": text.strip(),
+                          "key": key, "sent": sent, "recv": not sent})
+
+
+# ---- spolecne formatovani ----------------------------------------------------------
+def ago(sec):
+    sec = max(0, int(sec))
+    if sec < 60:
+        return "%ds" % sec
+    if sec < 3600:
+        return "%dm" % (sec // 60)
+    if sec < 86400:
+        return "%dh" % (sec // 3600)
+    return "%dd" % (sec // 86400)
+
+
+def ktok(n):
+    if n >= 1000000:
+        return "%.1fM" % (n / 1000000.0)
+    return "%dk" % round(n / 1000.0)
+
+
+def fsize(path):
+    try:
+        n = os.path.getsize(path)
+    except OSError:
+        return "?"
+    return "%.0f MB" % (n / 1e6) if n >= 1e6 else "%.0f kB" % (n / 1e3)
+
+
+def second_line(a, log):
+    """Druhy radek instance: model, velikost kontextu, prepis, pid."""
+    ctx, model = log.usage.get(a["transcript"], (0, ""))
+    parts = [model.replace("claude-", "") or "model ?",
+             "kontext " + (ktok(ctx) if ctx else "?"),
+             "přepis " + fsize(a["transcript"]),
+             "pid %d" % a["pid"]]
+    return " · ".join(parts)
+
+
+def hhmm(t):
+    lt = datetime.datetime.fromtimestamp(t)
+    if lt.date() == datetime.datetime.now().date():
+        return lt.strftime("%H:%M")
+    return lt.strftime("%d.%m %H:%M")
+
+
+def mark(m):
+    # ✓ = videt u obou stran, → = jen odeslano, ← = jen prijato (odesilatel neznamy)
+    if m["sent"] and m["recv"]:
+        return "✓"
+    return "→" if m["sent"] else "←"
+# ==== konec prevzateho z clmon ====
+
+
+# pro zkouseni nanecisto: jiny socket, jiny seznam projektu, jiny prikaz misto claude
+SOCK = os.environ.get("CLMON4_SOCKET", "clmon4")
+AGENT_CMD = os.environ.get("CLMON4_AGENT_CMD", "")
+TMUX_CONF = os.path.join(SCRIPT_DIR, "clmon.tmux.conf")
+KEYS_CONF = os.path.join(tempfile.gettempdir(), "clmon4-%s-keys.conf" % SOCK)
+SEP = "|~|"          # tmux ridici znaky ve vystupu prepisuje, oddelovac musi byt tisknutelny
+IDLE = "—"           # visacka prazdneho mista, kdyz dole neni zadny agent
+P1_W = 90            # vychozi sirka panelu pN ve sloupcich
+PANEL_MAX = 9        # nejvys tolik panelu (p1 .. p9)
+MIN_PX = 100         # pri zmensovani okna: levy a krajni pravy panel jdou dolu az sem (pixely)
+PANEL_ROLES = ("view", "chat", "edit", "hx", "run", "sh")   # co muze bezet v panelu pN; run = libovolny program, sh = konzole
+TBAR_H = 2           # vyska listy nastroju nad kazdym sloupcem (radku)
+STITEK_H = 2         # vyska stitku pod listou: co panel ukazuje, cim, a [copy]
+# Hrany mezi terminaly jsou tlusta cara (pane-border-lines heavy). Uvnitr panelu (lista |
+# stitek | obsah) je delba carkovana: horni hrana stitku a obsahu ma misto cary tenhle text,
+# tmux ho na sirku panelu orizne (krajni dva znaky zustanou tluste).
+DASH = "╌" * 400
+INNER_FMT = ("#{?pane_in_mode,#[align=left] LISTOVANI - klavesy nejdou agentovi - q ukonci ,"
+             "#{?#{@title}, #{@title} ,}" + DASH + "}")
+ARM_LABEL = " /exit "    # stitek, ktery se ukaze pri najeti mysi na kolecko stavu
+TIP_SECS = 2.5           # za jak dlouho po poslednim pohybu mysi stitek zmizi
+CTX_WARN = 200000        # kontext agenta od tolika tokenu zlute: kola jsou pomalejsi a drazsi
+CTX_HIGH = 400000        # od tolika cervene: cas na /compact, nebo zapsat, co vi, a zacit znovu
+RE_SGR = re.compile(rb"\x1b\[<(\d+);(\d+);(\d+)([Mm])")     # udalost mysi od terminalu
+KEYSEQ = {b"\x1b[A": "up", b"\x1bOA": "up", b"\x1b[B": "down", b"\x1bOB": "down",
+          b"\x1b[C": "right", b"\x1bOC": "right", b"\x1b[D": "left", b"\x1bOD": "left"}
+EDITOR = "micro"     # editor pro panely pN: klavesy jako v gedit, mys, Ctrl+S ulozit, Ctrl+Q zavrit
+# Vlastni nastaveni editoru jen pro clmon4, uzivatelova nastaveni micro se netyka.
+MICRO_DIR = os.path.join(os.path.expanduser("~"), ".config", "clmon4", "micro")
+# gnome-terminal ma Ctrl+C jako "Kopirovat" a do editoru ho nepusti. Proto kopiruje Alt+C
+# a tmux ho po oznaceni mysi posila sam (viz KEYS) - co se oznaci, je hned ve schrance.
+MICRO_BINDINGS = '{\n    "Alt-c": "Copy"\n}\n'
+# Druhy editor: helix na kod (barvi podle stromu kodu, clangd). Bezi v panelu s roli `hx`,
+# ne `edit` - zkratky mysi pro micro (Alt+C po oznaceni) by v helixu udelaly neco jineho.
+HX = "hx"                     # vychozi; main() ho vezme z apps.t2l (tool s ext *), kdyz tam je
+# Panely s tlacitkem [refresh] v liste: role panelu -> jak ho obnovit. Automaticke
+# prenacteni pri zmene souboru neni; obnovuje se jen timhle. Doplnovat sem.
+#   view = prohlizec: nacist soubor znovu, pozice zustane (klavesa r)
+#   edit = micro: prikaz reopen (Ctrl+E reopen Enter; s neulozenymi zmenami se zepta)
+#   -lTEXT = poslat TEXT doslova
+#   hx   = helix: :reload - jen kdyz nema neulozene zmeny, jinak by je zahodil
+REFRESH = {
+    "view": ["r"],
+    "edit": ["C-e", "-lreopen", "Enter"],
+    "hx":   ["Escape", ":", "-lreload", "Enter"],
+}
+# Programy v panelu (--run), ktere mluvi jednotnym protokolem panelu: odpovidaji na
+# chroma_dir / chroma_file / chroma_line pres WebSocket. clmon4 jim pri spusteni da
+# port PANEL_PORT + cislo panelu (--port) a pak se jich pta, co zobrazuji.
+WS_RUN = {"CPPBROWSE", "dirview.py"}
+PANEL_PORT = 54330                 # config.t2l: panel_port
+KOUMES_PORT = 54325                # koumes pusteny bez --port; config.t2l: koumes_port
+# [← dir]: adresar souboru z panelu ukazat v prohlizeci adresaru, vzdy v panelu p1
+DIR_VIEWER = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "KOUMES_KONZOLE_APPS", "dirview.py"))
+
+# Programy v panelu (--run): jmeno programu -> klavesy na obnoveni. Jen ty tady maji [refresh].
+REFRESH_RUN = {
+    "CPPBROWSE": ["r"],
+    "dirview.py": ["r"],
+}
+
+
+def run_prog(cmd):
+    """Jmeno programu z prikazu --run (bez cesty)."""
+    try:
+        parts = shlex.split(cmd or "")
+    except ValueError:
+        parts = (cmd or "").split()
+    return os.path.basename(parts[0]) if parts else ""
+
+
+def panel_ask(p, cmd):
+    """Zeptat se programu v panelu (jednotny protokol, WebSocket na @port). Vraci odpoved
+    nebo "" - kdyz panel port nema nebo neodpovi."""
+    if not p or not p["port"] or not shutil.which("websocat"):
+        return ""
+    try:
+        # -n1: na odpoved se pocka; s -1 se spojeni zavre hned po odeslani a pomalejsi
+        # program (dirview.py odpovida z hlavni smycky) odpoved nestihne
+        r = subprocess.run(["websocat", "-n1", "ws://127.0.0.1:%d" % p["port"]], input=cmd + "\n",
+                           capture_output=True, text=True, timeout=1.5)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return r.stdout.strip()
+
+
+def panel_shows(p):
+    """Co panel zobrazuje: soubor nebo adresar (u programu se zepta), pindani, nebo ""."""
+    if not p:
+        return ""
+    if p["role"] == "chat":
+        return "pindání"
+    if p["role"] == "run":
+        m = re.search(r"--DIR (.*)$", panel_ask(p, "chroma_dir"))
+        return m.group(1).strip() if m else ""
+    return p["file"]
+
+
+def refresh_keys(p):
+    """Klavesy na obnoveni panelu p, nebo None (pak nema [refresh])."""
+    if not p:
+        return None
+    if p["role"] == "run":
+        return REFRESH_RUN.get(run_prog(p["run"]))
+    return REFRESH.get(p["role"])
+
+
+# ---- tmux ---------------------------------------------------------------------
+def tmux(*args):
+    r = subprocess.run(["tmux", "-L", SOCK] + [str(a) for a in args],
+                       capture_output=True, text=True)
+    return r.returncode, r.stdout.rstrip("\n")
+
+
+def server_up():
+    return tmux("has-session", "-t", "ui")[0] == 0
+
+
+def gopt(name, value=None):
+    """Globalni uzivatelska volba tmuxu: cist, nebo nastavit."""
+    if value is None:
+        return tmux("show-options", "-gqv", name)[1]
+    tmux("set-option", "-g", name, value)
+    return value
+
+
+def popt(pane_id, name, value):
+    tmux("set-option", "-p", "-t", pane_id, name, value)
+
+
+def panes():
+    fields = ["#{pane_id}", "#{window_id}", "#{@role}", "#{@agent}", "#{pane_height}",
+              "#{window_height}", "#{window_zoomed_flag}", "#{pane_width}", "#{window_width}",
+              "#{pane_current_command}", "#{pane_left}", "#{@slot}", "#{@file}", "#{@run}", "#{@lock}", "#{@port}"]
+    rc, out = tmux("list-panes", "-a", "-F", SEP.join(fields))
+    res = []
+    if rc != 0:
+        return res
+    for line in out.splitlines():
+        p = line.split(SEP)
+        if len(p) == len(fields):
+            res.append({"id": p[0], "win": p[1], "role": p[2], "agent": p[3],
+                        "h": int(p[4] or 0), "wh": int(p[5] or 0), "zoom": p[6] == "1",
+                        "w": int(p[7] or 0), "ww": int(p[8] or 0), "cmd": p[9],
+                        "x": int(p[10] or 0), "slot": int(p[11]) if p[11].isdigit() else 0,
+                        "file": p[12], "run": p[13], "lock": p[14] == "1",
+                        "port": int(p[15]) if p[15].isdigit() else 0})
+    return res
+
+
+def lay(ps=None):
+    """Co je v hlavnim okne: list = seznam, main = terminal agenta, panels = panely pN
+    zleva doprava (kazdy ma "slot" = N). tb = lista nastroju nad panelem podle cisla;
+    k panelu patri ta, ktera s nim zacina na stejnem sloupci obrazovky. tbars = vsechny listy.
+    st / stitky = totez pro stitky pod listou."""
+    ps = panes() if ps is None else ps
+    out = {"list": None, "main": None, "panels": [], "menu": None, "tb": {}, "tbars": [],
+           "st": {}, "stitky": [], "avatar": None}
+    lp = next((p for p in ps if p["role"] == "list"), None)
+    if not lp:
+        return out
+    out["list"] = lp
+    for p in ps:
+        if p["win"] != lp["win"] or p["id"] == lp["id"]:
+            continue
+        if p["role"] in PANEL_ROLES and p["slot"]:
+            out["panels"].append(p)
+        elif p["role"] == "tbar":
+            out["tbars"].append(p)
+        elif p["role"] == "stitek":
+            out["stitky"].append(p)
+        elif p["role"] == "menu":
+            out["menu"] = p
+        elif p["role"] == "avatar":
+            out["avatar"] = p
+        elif p["agent"] and not out["main"]:
+            out["main"] = p
+    out["panels"].sort(key=lambda p: p["x"])
+    for p in out["panels"]:
+        out["tb"][p["slot"]] = next((b for b in out["tbars"] if b["x"] == p["x"]), None)
+        out["st"][p["slot"]] = next((b for b in out["stitky"] if b["x"] == p["x"]), None)
+    return out
+
+
+def panel(L, n):
+    """Panel pN z rozlozeni, nebo None."""
+    return next((p for p in L["panels"] if p["slot"] == n), None)
+
+
+def free_slot(L):
+    """Nejnizsi cislo panelu, ktere neni otevrene (0 = uz neni volne)."""
+    used = {p["slot"] for p in L["panels"]}
+    return next((n for n in range(1, PANEL_MAX + 1) if n not in used), 0)
+
+
+MSG_SECS = 4         # jak dlouho sviti hlaska v horni liste
+
+
+def copy_join(text):
+    """Slepit radky odstavce mezerou. Prazdny radek zustava jako hranice odstavce."""
+    out = []
+    for para in re.split(r"\n[ \t]*(?:\n[ \t]*)+", text.strip("\n")):
+        words = [l.strip() for l in para.split("\n") if l.strip()]
+        if words:
+            out.append(" ".join(words))
+    return "\n\n".join(out)
+
+
+def copy_cli(mode):
+    """Vyber z terminalu agenta (prijde na vstupu) dat do schranky a ohlasit to v liste."""
+    text = sys.stdin.buffer.read().decode("utf-8", "replace")
+    if mode == "join":
+        text = copy_join(text)
+    # Prazdny vyber (klik s malym posunem mysi, jen mezery) schranku nemaze - jinak by
+    # zmizelo, co si tam uzivatel dal odjinud, a vlozeni by nic nevlozilo.
+    if not text.strip():
+        return
+    try:
+        subprocess.run(["xclip", "-selection", "clipboard", "-i"], input=text.encode("utf-8"),
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        say("do schránky to nešlo (xclip)")
+        return
+    say("označené je ve schránce" + (" i s řádky" if mode != "join" else ""))
+
+
+def paste_cli(pane):
+    """Vlozit systemovou schranku do panelu jako vlozeni z terminalu (bracketed paste),
+    at ho agent i editor vezmou jako jeden kus textu, ne jako napsane klavesy."""
+    try:
+        text = subprocess.run(["xclip", "-o", "-selection", "clipboard"], capture_output=True,
+                              timeout=3).stdout
+    except (OSError, subprocess.SubprocessError):
+        text = b""
+    if not text:
+        say("schránka je prázdná")
+        return
+    subprocess.run(["tmux", "-L", SOCK, "load-buffer", "-b", "clmon4paste", "-"], input=text,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    tmux("paste-buffer", "-p", "-d", "-b", "clmon4paste", "-t", pane)
+
+
+def status_refresh():
+    """Prekreslit horni listu vsem pripojenym oknum (po zmene hlasky nebo tlacitek)."""
+    for c in tmux("list-clients", "-F", "#{client_name}")[1].splitlines():
+        tmux("refresh-client", "-S", "-t", c)
+
+
+def say(msg):
+    """Hlaska vpravo v horni liste, cerne na zlutem. Schvalne ne pres display-message:
+    ta na dobu zobrazeni zastavi prekreslovani okna a vsechno vypada zamrzle."""
+    gopt("@msg", (msg or "").replace("#", ""))
+    gopt("@msg_t", "%.1f" % time.time())
+    status_refresh()
+
+
+def short(path):
+    return "~" + path[len(HOME):] if path.startswith(HOME) else path
+
+
+# ---- agenti -------------------------------------------------------------------------
+def is_worker(path):
+    return bool(WORKERS_DIR) and path.startswith(WORKERS_DIR + "/")
+
+
+def entries():
+    """[(visacka, adresar)] - persony z projects.conf v jeho poradi, za nimi workeri T1-T6."""
+    conf = load_conf_names()
+    items = [(label, path) for path, label in conf.items()]
+    return [x for x in items if not is_worker(x[1])] + [x for x in items if is_worker(x[1])]
+
+
+def in_our_tmux(pid):
+    """Bezi ten proces uvnitr naseho tmuxu? Pozna se podle TMUX v jeho prostredi."""
+    try:
+        env = open("/proc/%d/environ" % pid, "rb").read().split(b"\0")
+    except OSError:
+        return False
+    for kv in env:
+        if kv.startswith(b"TMUX="):
+            return ("/%s," % SOCK).encode() in kv
+    return False
+
+
+def conf_cmd(path):
+    """Vlastni prikaz z `cmd:` v projects.conf (agent, ktery neni claude, napr. Codex),
+    nebo ''. Model ani kontext z clmon pro nej nejsou."""
+    try:
+        text = open(CONFIG_FILE, encoding="utf-8").read()
+    except OSError:
+        return ""
+    for block in re.split(r"\n\s*\n", text):
+        kv = {}
+        for line in block.splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and ":" in line:
+                k, v = line.split(":", 1)
+                kv[k.strip()] = v.strip()
+        if os.path.expanduser(kv.get("path", "")).rstrip("/") == path.rstrip("/"):
+            return os.path.expanduser(kv.get("cmd", ""))
+    return ""
+
+
+def is_remote(path):
+    """Agent na jinem PC: jeho `cmd:` v projects.conf je ssh na alias (viz clmon4.md)."""
+    return conf_cmd(path).startswith("ssh ")
+
+
+def agent_inner(label, path):
+    if AGENT_CMD:
+        return AGENT_CMD.format(name=shlex.quote(label))
+    cmd = conf_cmd(path)
+    if cmd:
+        return cmd
+    if is_worker(path):
+        # worker zacina cisty a jede v auto rezimu, bez --continue
+        return "claude --permission-mode auto --name %s" % shlex.quote(label)
+    # --continue jen kdyz uz v adresari je prepis, jinak claude konci
+    # s "No conversation found" (stejna pojistka jako v clswp)
+    has = glob.glob(os.path.join(PROJ_DIR, slug(path), "*.jsonl"))
+    return "claude %s--name %s" % ("--continue " if has else "", shlex.quote(label))
+
+
+def agent_cmd(label, path):
+    return agent_inner(label, path) + "; exec bash"
+
+
+def chat_cmd():
+    return "while :; do %s --chat; sleep 0.5; done" % shlex.quote(os.path.join(SCRIPT_DIR, "..", "KOUMES_KONZOLE_APPS", "pindani.py"))
+
+
+def pane_of(label, ps):
+    return next((p for p in ps if p["agent"] == label), None)
+
+
+CODEX_SESS = os.path.expanduser("~/.codex/sessions")
+
+
+def codex_transcript(path):
+    """Nejnovejsi prepis Codexu pro adresar (cwd je v prvnim radku, session_meta), nebo ''."""
+    files = sorted(glob.glob(os.path.join(CODEX_SESS, "*", "*", "*", "*.jsonl")),
+                   key=os.path.getmtime, reverse=True)
+    for f in files[:30]:
+        try:
+            with open(f, encoding="utf-8") as fh:
+                meta = json.loads(fh.readline()).get("payload") or {}
+        except (OSError, ValueError):
+            continue
+        if meta.get("cwd", "").rstrip("/") == path.rstrip("/"):
+            return f
+    return ""
+
+
+def codex_usage(f):
+    """(kontext, model) z konce prepisu Codexu: posledni token_count a turn_context."""
+    ctx, model = 0, ""
+    try:
+        with open(f, "rb") as fh:
+            fh.seek(max(0, os.path.getsize(f) - 400000))
+            lines = fh.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return ctx, model
+    for line in reversed(lines):
+        if ctx and model:
+            break
+        if not ctx and '"token_count"' in line:
+            try:
+                info = json.loads(line)["payload"].get("info") or {}
+                ctx = (info.get("last_token_usage") or {}).get("total_tokens", 0)
+            except (ValueError, KeyError, AttributeError):
+                pass
+        if not model:
+            m = re.search(r'"model":"([^"]+)"', line)
+            if m:
+                model = m.group(1)
+    return ctx, model
+
+
+def codex_status(f):
+    """(stav, od kdy) z konce prepisu Codexu: busy po task_started, idle po task_complete
+    nebo prerusenem tahu. Bez prepisu idle."""
+    try:
+        with open(f, "rb") as fh:
+            fh.seek(max(0, os.path.getsize(f) - 400000))
+            lines = fh.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return "idle", time.time()
+    for line in reversed(lines):
+        m = re.search(r'"payload":\{"type":"(task_started|task_complete|turn_aborted)"', line)
+        if m:
+            try:
+                since = ts_of(json.loads(line))
+            except ValueError:
+                since = 0
+            return ("busy" if m.group(1) == "task_started" else "idle"), since or time.time()
+    return "idle", os.path.getmtime(f)
+
+
+def pane_busy(pane_id):
+    """Ma shell v panelu podproces (bezi v nem neco, nejen prompt)?"""
+    pid = tmux("display", "-p", "-t", pane_id, "#{pane_pid}")[1].strip()
+    try:
+        return bool(open("/proc/%s/task/%s/children" % (pid, pid)).read().strip())
+    except OSError:
+        return False
+
+
+def state_of(label, path, ps, agents):
+    """here = bezi tady · jinde = bezi mimo clmon4 · shell = panel bez session · off"""
+    sess = next((a for a in agents if a["cwd"].rstrip("/") == path.rstrip("/")), None)
+    if sess:
+        return ("here" if in_our_tmux(sess["pid"]) else "jinde"), sess
+    pane = pane_of(label, ps)
+    if pane and conf_cmd(path) and pane_busy(pane["id"]):
+        # agent z `cmd:` (napr. codex) nema session soubor claude - bezi, kdyz shell
+        # v jeho panelu ma podproces (pane_current_command nestaci: u `bash -c "x; exec
+        # bash"` je codex v process group bashe a tmux hlasi bash)
+        tr = codex_transcript(path)
+        status, since = codex_status(tr) if tr else ("idle", time.time())
+        return "here", {"pid": 0, "cwd": path, "status": status, "since": since,
+                        "transcript": tr, "codex": True}
+    if os.environ.get("CLMON4_FAKE_HERE") and pane_of(label, ps):
+        # jen pro zkouseni nanecisto: panel s nahradnim prikazem se tvari jako bezici agent
+        return "here", {"pid": 0, "cwd": path, "status": "idle", "since": time.time(),
+                        "transcript": ""}
+    return ("shell" if pane_of(label, ps) else "off"), None
+
+
+def rows_state(items=None, ps=None, agents=None):
+    """[(idx, visacka, adresar, stav, session)] pro vsechny persony v poradi z projects.conf."""
+    items = entries() if items is None else items
+    ps = panes() if ps is None else ps
+    agents = load_agents(load_conf_names()) if agents is None else agents
+    return [(i, label, path) + state_of(label, path, ps, agents)
+            for i, (label, path) in enumerate(items)]
+
+
+def running(rows):
+    """Persony, ktere bezi - ty maji v seznamu svuj radek."""
+    return [r for r in rows if r[3] in ("here", "jinde")]
+
+
+def stopped(rows):
+    """Persony, ktere nebezi - ty jsou jen jmenem v radku pod prikazy."""
+    return [r for r in rows if r[3] in ("off", "shell")]
+
+
+USAGE_FILE = os.path.expanduser("~/.cache/clmon3/usage.json")   # pise clmon3-statusline (statusLine v settings.json)
+DNY = ["po", "út", "st", "čt", "pá", "so", "ne"]
+
+
+def usage_parts():
+    """Limity uctu z ~/.cache/clmon4/usage.json (pise ho clmon4-statusline):
+    [(text, procenta nebo None)]; prazdne, kdyz soubor neni."""
+    try:
+        with open(USAGE_FILE) as f:
+            rl = json.load(f).get("rate_limits") or {}
+    except (OSError, ValueError):
+        return []
+    out, now = [], time.time()
+    for key, name in (("five_hour", "5h"), ("seven_day", "týden")):
+        w = rl.get(key) or {}
+        pct, ra = w.get("used_percentage"), w.get("resets_at")
+        if pct is None:
+            continue
+        try:
+            ts = float(ra)
+        except (TypeError, ValueError):
+            try:
+                ts = datetime.datetime.fromisoformat(str(ra).replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                ts = 0
+        if ts and ts < now:
+            out.append(("%s ? (okno skončilo)" % name, None))
+            continue
+        lt = time.localtime(ts) if ts else None
+        when = ("" if not lt else time.strftime("%H:%M", lt) if ts - now < 86400
+                else "%s %s" % (DNY[lt.tm_wday], time.strftime("%H:%M", lt)))
+        out.append(("%s %d%%%s" % (name, round(pct), " (do %s)" % when if when else ""), pct))
+    return out
+
+
+def codex_limits():
+    """Limity uctu Codexu (GPT) z posledniho token_count v nejnovejsim prepisu Codexu:
+    [(text, procenta)] jako usage_parts; prazdne, kdyz Codex nebezel. Codex je zapise
+    jen pri tahu - okno, ktere mezitim skoncilo, je 0 %."""
+    files = sorted(glob.glob(os.path.join(CODEX_SESS, "*", "*", "*", "*.jsonl")),
+                   key=os.path.getmtime, reverse=True)
+    rl = {}
+    for f in files[:5]:
+        try:
+            with open(f, "rb") as fh:
+                fh.seek(max(0, os.path.getsize(f) - 400000))
+                lines = fh.read().decode("utf-8", "replace").splitlines()
+        except OSError:
+            continue
+        for line in reversed(lines):
+            if '"rate_limits"' in line:
+                try:
+                    rl = json.loads(line)["payload"].get("rate_limits") or {}
+                except (ValueError, KeyError, AttributeError):
+                    rl = {}
+                if rl:
+                    break
+        if rl:
+            break
+    out, now = [], time.time()
+    for key, name in (("primary", "5h"), ("secondary", "týden")):
+        w = rl.get(key) or {}
+        pct, ts = w.get("used_percent"), w.get("resets_at") or 0
+        if pct is None:
+            continue
+        if ts and ts < now:
+            out.append(("%s 0%%" % name, 0))
+            continue
+        lt = time.localtime(ts) if ts else None
+        when = ("" if not lt else time.strftime("%H:%M", lt) if ts - now < 86400
+                else "%s %s" % (DNY[lt.tm_wday], time.strftime("%H:%M", lt)))
+        out.append(("%s %d%%%s" % (name, round(pct), " (do %s)" % when if when else ""), pct))
+    return out
+
+
+def row_to_idx(y):
+    """Radek v seznamu (kde jsou jen bezici) -> cislo persony; -1, kdyz tam nic neni."""
+    vis = running(rows_state())
+    return vis[y][0] if 0 <= y < len(vis) else -1
+
+
+def idle_layout(rows, width):
+    """Nebezici pro seznam: persony, oddelovac, workeri, zalomene na sirku seznamu.
+    Vraci radky, kazdy jako [(sloupec, text, cislo polozky nebo None)]."""
+    st = stopped(rows)
+    pers = [(i, "%d %s" % (i + 1, label), 4) for i, label, path, _, _ in st if not is_worker(path)]
+    work = [(i, "[%s]" % label.split()[-1], 3) for i, label, path, _, _ in st if is_worker(path)]
+    seq = pers + ([(None, "┊", 3)] if pers and work else []) + work
+    out, row, x = [], [], 2
+    for i, text, gap in seq:
+        w = cwidth(text)
+        if row and x + w >= width:
+            out.append(row)
+            row, x = [], 2
+        row.append((x, text, i))
+        x += w + gap
+    if row:
+        out.append(row)
+    return out
+
+
+def idle_data(rows):
+    """Nebezici persony a workeri pro menu nad seznamem: `cislo,worker,visacka` oddelene ¦.
+    Drzi to volba tmuxu @idle, menu si ji cte."""
+    return "¦".join("%d,%d,%s" % (i, is_worker(path), label)
+                    for i, label, path, _, _ in stopped(rows))
+
+
+def idle_bar(rows):
+    """Druhy radek horni listy: nebezici persony jako klikaci jmena. Prazdny, kdyz bezi vsichni."""
+    st = stopped(rows)
+    if not st:
+        return ""
+    pers = ["#[range=user|a%d]%d %s#[norange]" % (i, i + 1, label)
+            for i, label, path, _, _ in st if not is_worker(path)]
+    # workeri jen jako tlacitko se jmenem, bez ikony s cislem
+    work = ["#[range=user|a%d][%s]#[norange]" % (i, label.split()[-1])
+            for i, label, path, _, _ in st if is_worker(path)]
+    out = " " + "    ".join(pers)
+    if work:
+        out += ("   #[fg=colour244]┊#[default]   " if pers else "") + "   ".join(work)
+    return out
+
+
+def wake(pane_id):
+    """Vytahnout panel z rezimu listovani tmuxu (kolecko mysi ho tam necha viset).
+    V nem jdou klavesy tmuxu, ne agentovi - nejde psat ani poslat /exit."""
+    tmux("copy-mode", "-q", "-t", pane_id)
+
+
+# ---- okno terminalu: pridavat a ubirat sirku ----------------------------------------------
+# Panel pN se neotvira na ukor toho, co uz na obrazovce je: okno terminalu se
+# o nej rozsiri a po zavreni zase zuzi. Jde to pres wmctrl, kdyz okno neni maximalizovane.
+def xrun(*cmd):
+    try:
+        r = subprocess.run(list(cmd), capture_output=True, text=True, timeout=3)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return r.stdout if r.returncode == 0 else ""
+
+
+def active_window():
+    out = xrun("xprop", "-root", "_NET_ACTIVE_WINDOW")
+    wid = out.strip().split()[-1] if out.strip() else ""
+    return wid if wid.startswith("0x") and int(wid, 16) else ""
+
+
+def window_width():
+    rc, out = tmux("display-message", "-p", "-t", "ui:", "#{window_width}")
+    try:
+        return int(out)
+    except ValueError:
+        return 0
+
+
+def our_window():
+    """Id okna terminalu, ve kterem clmon4 bezi. Pozna se podle titulku, ktery oknu
+    dava tmux (= jmeno socketu) - cizi okno se tak nikdy nezmeni."""
+    wid = gopt("@winid")
+    if wid and ('"%s"' % SOCK) in xrun("xprop", "-id", wid, "_NET_WM_NAME"):
+        return wid
+    for line in xrun("wmctrl", "-l").splitlines():
+        parts = line.split(None, 3)
+        if len(parts) == 4 and parts[3].strip() == SOCK:
+            gopt("@winid", parts[0])
+            return parts[0]
+    return ""
+
+
+def grow(cols):
+    """Rozsirit (cols > 0) nebo zuzit (cols < 0) okno terminalu o dany pocet sloupcu.
+    Vraci True, kdyz se sirka v tmuxu opravdu zmenila."""
+    if not cols or not tmux("list-clients", "-t", "ui")[1]:
+        return False
+    wid = our_window()
+    if not wid:
+        return False
+    state = xrun("xprop", "-id", wid, "_NET_WM_STATE", "WM_NORMAL_HINTS")
+    if not state or "MAXIMIZED_HORZ" in state or "FULLSCREEN" in state:
+        return False
+    inc = 0
+    for line in state.splitlines():
+        if "resize increment" in line:
+            try:
+                inc = int(line.split(":")[1].split("by")[0])
+            except (IndexError, ValueError):
+                inc = 0
+    info = xrun("xwininfo", "-id", wid)
+    try:
+        px = int(next(l for l in info.splitlines() if "Width:" in l).split()[-1])
+    except (StopIteration, ValueError):
+        return False
+    if inc <= 0 or px <= 0:
+        return False
+    before = window_width()
+    target = px + cols * inc
+    xrun("wmctrl", "-i", "-r", wid, "-e", "0,-1,-1,%d,-1" % target)
+    for _ in range(30):                   # pockat, az se zmena propise do tmuxu
+        time.sleep(0.05)
+        if window_width() != before:
+            break
+    return window_width() != before
+
+
+# ---- rozlozeni: panely pres celou vysku vedle sebe -----------------------------------------
+#   levy panel = seznam nahore + terminal agenta pod nim · vpravo od nej panely p1, p2, ...
+def touch():
+    """Oznacit, ze rozlozeni prave meni clmon4 sam. Seznam podle toho pozna, ze
+    zmena velikosti panelu neni tazeni mysi, a neulozi si ji jako volbu uzivatele."""
+    gopt("@gen", "%.3f" % time.time())
+
+
+def want_w(n):
+    """Sirka noveho panelu pN - vzdy vychozi, zadne pamatovani."""
+    return P1_W
+
+
+def cell_px():
+    """Sirka jednoho sloupce terminalu v pixelech (resize increment okna), jinak 9."""
+    wid = our_window()
+    for line in (xrun("xprop", "-id", wid, "WM_NORMAL_HINTS") if wid else "").splitlines():
+        if "resize increment" in line:
+            try:
+                return max(1, int(line.split(":")[1].split("by")[0]))
+            except (IndexError, ValueError):
+                pass
+    return 9
+
+
+# ---- sirky sloupcu --------------------------------------------------------------------------
+# Tri pravidla, nic jineho:
+#   1. vnitrni hrana meni jen dva sousedni sloupce (tak to tmux dela sam),
+#   2. vnejsi hrana okna meni jen krajni sloupec,
+#   3. pod MIN_PX zadny sloupec nejde.
+# Sloupce: 0 = levy (seznam + agent), pak panely pN zleva doprava. @cols drzi sirky,
+# jak byly naposled spravne; z nich se vychazi pri zmene okna.
+def min_cols(fresh=False):
+    """MIN_PX ve sloupcich terminalu (nahoru). Drzi se v @mn, at tazeni nevola xprop."""
+    try:
+        v = 0 if fresh else int(gopt("@mn") or 0)
+    except ValueError:
+        v = 0
+    if v <= 0:
+        v = -(-MIN_PX // cell_px())
+        gopt("@mn", str(v))
+    return v
+
+
+def columns(L):
+    """Sloupce zleva: (klic, pane). Levy sloupec ma celou sirku v menu nad seznamem."""
+    return [(0, L["menu"] or L["list"])] + [(p["slot"], p) for p in L["panels"]]
+
+
+def saved_cols():
+    cols = {}
+    for part in (gopt("@cols") or "").split(","):
+        k, _, v = part.partition(":")
+        if k.isdigit() and v.isdigit():
+            cols[int(k)] = int(v)
+    return cols
+
+
+def save_cols(keys, ws):
+    gopt("@cols", ",".join("%d:%d" % kw for kw in zip(keys, ws)))
+
+
+def apply_cols(L, ws):
+    """Nastavit sirky sloupcu zleva doprava; posledni ma, co zbude."""
+    cs = columns(L)
+    touch()
+    for (k, p), w in list(zip(cs, ws))[:-1]:
+        tmux("resize-pane", "-t", p["id"], "-x", w)
+    touch()
+    save_cols([k for k, p in cs], ws)
+
+
+def edge_fit(ws, room, mn, right=True):
+    """Rozdil mista jde cely do krajniho sloupce. Kdyz ten pri zmensovani narazi na
+    minimum, bere se dalsimu smerem dovnitr, jeden po druhem - nikdy v pomeru."""
+    ws = list(ws)
+    delta = room - sum(ws)
+    order = list(range(len(ws) - 1, -1, -1)) if right else list(range(len(ws)))
+    if delta > 0:
+        ws[order[0]] += delta
+        return ws
+    for i in order:
+        d = min(-delta, max(0, ws[i] - mn))
+        ws[i] -= d
+        delta += d
+        if not delta:
+            break
+    return ws
+
+
+def window_x():
+    """Pozice leve hrany okna terminalu na obrazovce (nebo None)."""
+    wid = our_window()
+    for line in (xrun("xwininfo", "-id", wid) if wid else "").splitlines():
+        if "Absolute upper-left X" in line:
+            try:
+                return int(line.split(":")[1])
+            except ValueError:
+                pass
+    return None
+
+
+def busy(on=None):
+    """clmon4 prave sam otevira nebo zavira panel - hook pri zmene okna ma pockat.
+    Bez parametru: plati jeste? (starsi nez 5 s se nepocita, kdyby neco spadlo)."""
+    if on is not None:
+        gopt("@busy", "%.3f" % time.time() if on else "")
+        return on
+    try:
+        return time.time() - float(gopt("@busy") or 0) < 5
+    except ValueError:
+        return False
+
+
+def fit(base=None, right=None):
+    """Po zmene okna: sloupce zustanou, jak byly (@cols, nebo `base`), rozdil sirky dostane
+    jen krajni sloupec - pravy, nebo levy, kdyz se pohnula leva hrana okna."""
+    L = lay()
+    lp = L["list"]
+    if not lp or lp["zoom"] or not L["panels"]:
+        return
+    cs = columns(L)
+    keys = [k for k, p in cs]
+    cur = [p["w"] for k, p in cs]
+    room = lp["ww"] - (len(cs) - 1)
+    if base is None or len(base) != len(cs):
+        saved = saved_cols()
+        base = [saved.get(k, w) for k, w in zip(keys, cur)]
+        if sum(base) == room:
+            # okno se nezmenilo - co je na obrazovce, je volba uzivatele (tazeni hrany,
+            # ktere se nestihlo zapamatovat), nic nevracet
+            save_cols(keys, cur)
+            return
+    x, old = window_x(), gopt("@winx")
+    if x is not None:
+        gopt("@winx", str(x))
+    if right is None:
+        right = not (x is not None and old and str(x) != old)
+    ws = edge_fit(base, room, min_cols(True), right)
+    if ws != cur:
+        apply_cols(L, ws)
+    else:
+        save_cols(keys, ws)
+
+
+def clamp():
+    """Tazeni hrany (kazdy pohyb mysi): tmux meni jen dva sousedy. Kdo spadne pod MIN_PX,
+    vrati se na minimum a dorovna to ten, kdo tazenim narostl. Jinak se jen zapamatuji
+    sirky, jak jsou. Behem tazeni chodi udalosti rychleji, nez skript dobehne - ktery
+    prijde, kdyz predchozi jeste bezi, skonci hned."""
+    import fcntl
+    lk = open(os.path.join(tempfile.gettempdir(), "clmon4-%s-clamp.lock" % SOCK), "w")
+    try:
+        fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return
+    L = lay()
+    lp = L["list"]
+    if not lp or lp["zoom"] or not L["panels"]:
+        return
+    cs = columns(L)
+    keys = [k for k, p in cs]
+    cur = [p["w"] for k, p in cs]
+    mn = min_cols()
+    if all(w >= mn for w in cur):
+        save_cols(keys, cur)
+        return
+    saved = saved_cols()
+    gain = [w - saved.get(k, w) for k, w in zip(keys, cur)]
+    ws = [max(w, mn) for w in cur]
+    extra = sum(ws) - sum(cur)
+    for i in sorted(range(len(ws)), key=lambda i: -gain[i]):   # nejdriv ten, kdo narostl
+        d = min(extra, max(0, ws[i] - mn))
+        ws[i] -= d
+        extra -= d
+        if not extra:
+            break
+    apply_cols(L, ws)
+
+
+def ensure_main(L=None):
+    """Kdyz pod seznamem neni terminal agenta, zalozit prazdne misto s napovedou."""
+    L = L or lay()
+    if L["main"]:
+        return L["main"]["id"]
+    touch()
+    rc, pid = tmux("split-window", "-d", "-v", "-t", L["list"]["id"], "-c", HOME,
+                   "-P", "-F", "#{pane_id}", "%s --idle" % shlex.quote(ME))
+    if rc != 0 or not pid:
+        return None
+    popt(pid, "@role", "idle")
+    popt(pid, "@agent", IDLE)
+    return pid
+
+
+def active_path():
+    """Adresar agenta, ktery je prave dole (nebo None)."""
+    main = lay()["main"]
+    if not main:
+        return None
+    return next((path for label, path in entries() if label == main["agent"]), None)
+
+
+def add_panel(role, width, cwd, cmd):
+    """Pridat panel pres celou vysku uplne vpravo; okno se o nej nejdriv rozsiri."""
+    L = lay()
+    if not L["list"]:
+        return None
+    touch()
+    grow(width + 1)                       # +1 je hrana mezi panely
+    rc, pid = tmux("split-window", "-d", "-h", "-f", "-t", L["list"]["id"], "-l", width,
+                   "-c", cwd, "-P", "-F", "#{pane_id}", cmd)
+    if rc != 0 or not pid:
+        return None
+    popt(pid, "@role", role)
+    return pid
+
+
+def drop_panel(pane):
+    """Zavrit panel i s jeho listou nastroju a stitkem a okno o nej zase zuzit."""
+    width = pane["w"]
+    touch()
+    L = lay()
+    keep = [p["w"] for k, p in columns(L) if p["id"] != pane["id"]] if L["list"] else None
+    busy(True)
+    for b in L["tbars"] + L["stitky"]:
+        if b["x"] == pane["x"]:
+            tmux("kill-pane", "-t", b["id"])
+    tmux("kill-pane", "-t", pane["id"])
+    grow(-(width + 1))
+    fit(keep, right=True)                 # ostatni sloupce zustanou, jak byly
+    busy(False)
+    touch()
+
+
+def ensure_tbars(L=None):
+    """Kazdy panel pN ma nahore svou listu nastroju, vysokou TBAR_H radku.
+    Levy sloupec ma nad seznamem menu s tlacitky. Chybejici zalozit, lista bez sloupce
+    pod sebou zmizi, vysku drzet."""
+    L = L or lay()
+    if not L["list"] or L["list"]["zoom"]:
+        return False
+    changed = False
+    lp, menu = L["list"], L["menu"]
+    if not menu:
+        # Misto pro menu se vezme seznamu; ten si pak svou vysku vrati na ukor agenta.
+        touch()
+        tmux("resize-pane", "-t", lp["id"], "-y", lp["h"] + TBAR_H + 1)
+        rc, pid = tmux("split-window", "-d", "-v", "-b", "-l", TBAR_H, "-t", lp["id"],
+                       "-c", HOME, "-P", "-F", "#{pane_id}",
+                       "while :; do %s --menu; sleep 1; done" % shlex.quote(ME))
+        if rc == 0 and pid:
+            popt(pid, "@role", "menu")
+            changed = True
+    elif menu["h"] != TBAR_H:
+        touch()
+        tmux("resize-pane", "-t", menu["id"], "-y", TBAR_H)
+        changed = True
+    mine = []
+    for col in L["panels"]:
+        tb = L["tb"].get(col["slot"])
+        if tb:
+            mine.append(tb["id"])
+            if tb["h"] != TBAR_H:
+                touch()
+                tmux("resize-pane", "-t", tb["id"], "-y", TBAR_H)
+                changed = True
+            continue
+        touch()
+        rc, pid = tmux("split-window", "-d", "-v", "-b", "-l", TBAR_H, "-t", col["id"],
+                       "-c", HOME, "-P", "-F", "#{pane_id}",
+                       "while :; do %s --tbar; sleep 1; done" % shlex.quote(ME))
+        if rc == 0 and pid:
+            popt(pid, "@role", "tbar")
+            mine.append(pid)
+            changed = True
+    # pod listou stitek: tim, ze se deli panel s obsahem (-b), padne mezi listu a obsah
+    for col in L["panels"]:
+        st = L["st"].get(col["slot"])
+        if st:
+            mine.append(st["id"])
+            if st["h"] != STITEK_H:
+                touch()
+                tmux("resize-pane", "-t", st["id"], "-y", STITEK_H)
+                changed = True
+            continue
+        touch()
+        rc, pid = tmux("split-window", "-d", "-v", "-b", "-l", STITEK_H, "-t", col["id"],
+                       "-c", HOME, "-P", "-F", "#{pane_id}",
+                       "while :; do %s --stitek; sleep 1; done" % shlex.quote(ME))
+        if rc == 0 and pid:
+            popt(pid, "@role", "stitek")
+            popt(pid, "pane-border-format", DASH)
+            popt(col["id"], "pane-border-format", INNER_FMT)
+            mine.append(pid)
+            changed = True
+    for b in L["tbars"] + L["stitky"]:
+        if b["id"] not in mine:
+            touch()
+            tmux("kill-pane", "-t", b["id"])
+            changed = True
+    if changed:
+        touch()
+    return changed
+
+
+def tbar():
+    """Lista nastroju nad panelem pN: vlevo cislo panelu, vpravo zamek [🔒] a [x], ktere
+    panel zavre. Ke kteremu panelu patri, pozna podle sve
+    polohy. Klik si cte sama; po zmene kodu skonci a smycka ji pusti znovu."""
+    import termios
+    code = os.path.getmtime(ME)
+    me = os.environ.get("TMUX_PANE", "")
+    fd = sys.stdin.fileno()
+    try:
+        old = termios.tcgetattr(fd)
+        new = termios.tcgetattr(fd)
+        new[3] &= ~(termios.ECHO | termios.ICANON)       # psani do listy nic nevypise
+        termios.tcsetattr(fd, termios.TCSANOW, new)
+    except termios.error:
+        old = None
+    out = sys.stdout
+    out.write("\x1b[?25l\x1b[?7l\x1b[?1000h\x1b[?1006h")
+    BG, FG = "\x1b[48;5;235m", "\x1b[22;38;5;250m"
+    shown, buttons = None, []          # buttons = [(radek, od, do, akce)] - radky a sloupce od 1
+    try:
+        while os.path.getmtime(ME) == code:
+            L = lay()
+            n = next((s for s, b in L["tb"].items() if b and b["id"] == me), 0)
+            p = panel(L, n) if n else None
+            chat = bool(p and p["role"] == "chat")
+            lock = bool(p and p["lock"])
+            role = "refresh" if refresh_keys(p) else ""
+            updir = bool(p and p["role"] in ("view", "edit", "hx") and p["file"])
+            sh = bool(p and p["role"] == "sh")
+            size = shutil.get_terminal_size((80, TBAR_H))
+            slots = [q["slot"] for q in L["panels"]]
+            left = bool(slots) and n in slots and slots.index(n) > 0          # [<] jen kdyz je vlevo soused
+            right = bool(slots) and n in slots and slots.index(n) < len(slots) - 1
+            state = (size, n, chat, lock, role, updir, sh, left, right)
+            if state != shown:
+                buttons = []
+                if n:
+                    head = " p%d" % n
+                    x = 1 + cwidth(head)
+                    row = "\x1b[1;38;5;252m%s%s" % (head, FG)
+                    # vlevo za cislem appky do tohohle panelu: [repos], [>_] konzole (znovu = zpet),
+                    # [timeax] dirview v rezimu timeaxis, [apps] prehled appek konzole
+                    rp, sk, ta, ap = "[repos]", "[>_]", "[timeax]" if config.place("timeaxis") else "", "[apps]"
+                    if x + 4 + len(rp) + len(sk) + len(ta) + len(ap) < size.columns:
+                        buttons.append((1, x + 1, x + len(rp), "repos%d" % n))
+                        row += " \x1b[38;5;110m%s%s" % (rp, FG)
+                        x += 1 + len(rp)
+                        buttons.append((1, x + 1, x + len(sk), "sh%d" % n))
+                        row += " %s\x1b[38;5;%dm%s%s" % ("\x1b[1m" if sh else "", 214 if sh else 110, sk, FG)
+                        x += 1 + len(sk)
+                        if ta:
+                            buttons.append((1, x + 1, x + len(ta), "timeax%d" % n))
+                            row += " \x1b[38;5;110m%s%s" % (ta, FG)
+                            x += 1 + len(ta)
+                        buttons.append((1, x + 1, x + len(ap), "apps%d" % n))
+                        row += " \x1b[38;5;110m%s%s" % (ap, FG)
+                        x += 1 + len(ap)
+                    # vpravo na druhem radku: [← dir] [🔃] [🔒] [<][>] [x]
+                    # [🔒] zamek (zamceny panel se neprepisuje, dalsi obsah jde vedle), [x] zavre
+                    lk = "[🔒]" if lock else "[🔓]"
+                    lw = cwidth(lk)
+                    xw = size.columns - 3                 # [x] uplne vpravo
+                    xm = xw - 1 - 6                       # [<][>] posunout panel, hned pred [x]
+                    xl = xm - 1 - lw
+                    rf = "[🔃]" if role else ""
+                    rw = cwidth(rf)
+                    xr = xl - 1 - rw if rf else xl        # [🔃] obnovit, pred zamkem, jen u REFRESH
+                    ud = "[← dir]" if updir else ""
+                    xd = xr - 1 - cwidth(ud) if ud else xr   # [← dir] pred [🔃]
+                    row2 = ""
+                    if xd > 1:
+                        if ud:
+                            buttons.append((2, xd, xd + cwidth(ud) - 1, "updir%d" % n))
+                        if rf:
+                            buttons.append((2, xr, xr + rw - 1, "refresh%d" % n))
+                        buttons.append((2, xl, xl + lw - 1, "lock%d" % n))
+                        if left:
+                            buttons.append((2, xm, xm + 2, "mvl%d" % n))
+                        if right:
+                            buttons.append((2, xm + 3, xm + 5, "mvr%d" % n))
+                        buttons.append((2, xw, xw + 2, "x%d" % n))
+                        row2 = " " * (xd - 1)
+                        if ud:
+                            row2 += "\x1b[38;5;110m%s%s " % (ud, FG)
+                        if rf:
+                            row2 += "\x1b[38;5;110m%s%s " % (rf, FG)
+                        # [<][>] u krajniho panelu tlumene, tam neni s kym prohodit
+                        mv = "\x1b[38;5;%dm[<]\x1b[38;5;%dm[>]%s" % (110 if left else 238,
+                                                                     110 if right else 238, FG)
+                        row2 += "%s\x1b[38;5;%dm%s%s %s \x1b[38;5;174m[x]%s" % (
+                            "\x1b[1m" if lock else "", 214 if lock else 242, lk, FG, mv, FG)
+                else:
+                    row, row2 = "", ""
+                rows = ([row, row2] + [""] * size.lines)[:size.lines]
+                out.write("".join("\x1b[%d;1H%s%s%s\x1b[K" % (i + 1, BG, FG, r)
+                                  for i, r in enumerate(rows)) + "\x1b[0m")
+                out.flush()
+                shown = state
+            r, _, _ = select.select([fd], [], [], 0.5)
+            if not r:
+                continue
+            data = os.read(fd, 1024)                      # klavesy do listy zahodit
+            for m in RE_SGR.finditer(data):
+                b, mx, my = int(m.group(1)), int(m.group(2)), int(m.group(3))
+                if b != 0 or m.group(4) != b"M":
+                    continue
+                hit = next((a for y, x0, x1, a in buttons if y == my and x0 <= mx <= x1), None)
+                if hit:
+                    subprocess.Popen([ME, "--toggle", hit], stdin=subprocess.DEVNULL,
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                     start_new_session=True)
+    finally:
+        out.write("\x1b[?1000l\x1b[?1006l\x1b[?7h\x1b[?25h")
+        out.flush()
+        if old:
+            termios.tcsetattr(fd, termios.TCSANOW, old)
+
+
+APP_NAME = {"view": "prohlížeč", "edit": "micro", "hx": "helix", "chat": "pindání", "sh": "konzole"}
+
+
+def panel_app(p):
+    """Cim panel p jede: helix, micro, prohlizec, pindani, nebo jmeno programu (i s portem)."""
+    if not p:
+        return ""
+    if p["role"] == "run":
+        return run_prog(p["run"]) + (" · port %d" % p["port"] if p["port"] else "")
+    return APP_NAME.get(p["role"], p["role"])
+
+
+def is_binary(path):
+    try:
+        with open(path, "rb") as f:
+            return b"\0" in f.read(8192)
+    except OSError:
+        return True
+
+
+def switch_options(p, shows=""):
+    """Prepinac prohlizece na stitku: cim vsim jde to, co panel ukazuje, zobrazit - podle
+    apps.t2l. [(popisek, interni, aktivni, argumenty pro --switch)]. Interni = v panelu
+    ([viewer], [helix], [git_list]), externi = vlastni okno (↗eog, ↗xdg-open)."""
+    dv = bool(p) and p["role"] == "run" and run_prog(p["run"]) == os.path.basename(DIR_VIEWER)
+    if not p or not (p["role"] in ("view", "hx", "edit") and p["file"] or dv and shows):
+        return []
+    path = os.path.expanduser(shows) if dv else p["file"]
+    if not os.path.exists(path):
+        return []
+    out = []
+    if os.path.isdir(path):                               # adresar: dirview i git list (najde si repo)
+        out.append(("[dirview]", True, dv, ["dirview"]))
+        out.append(("[git_list]", True, p["role"] == "view", ["view"]))
+    else:
+        out.append(("[viewer]", True, p["role"] == "view", ["view"]))
+        if not is_binary(path) and shutil.which(HX):
+            out.append(("[helix]", True, p["role"] == "hx", ["hx"]))
+    try:
+        sys.path.insert(0, SCRIPT_DIR)
+        import apps
+        seen = set()
+        for b in (apps.bin_for(path), "xdg-open"):
+            if b and b not in seen and shutil.which(b):
+                seen.add(b)
+                out.append(("↗" + b, False, False, ["ext", b]))
+    except (ImportError, OSError):
+        pass
+    return out
+
+
+def switch_panel(n, how, prog=""):
+    """--switch pN view|hx|dirview|ext <bin>: interni = soubor panelu v tom programu v panelu,
+    externi = tentyz soubor v okne externi appky."""
+    p = panel(lay(), n)
+    path = (os.path.expanduser(panel_shows(p)) if p and p["role"] == "run" else p["file"]) if p else ""
+    if not path:
+        return "p%d nic neukazuje" % n
+    if how == "ext":
+        subprocess.Popen([prog, path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+        return None
+    if how == "dirview":
+        return tp(n, None, run="%s %s" % (shlex.quote(DIR_VIEWER), shlex.quote(path)))
+    return tp(n, path, hx=how == "hx")
+
+
+def stitek():
+    """Stitek pod listou panelu pN: 1. radek co panel ukazuje (soubor / adresar) a vpravo
+    [copy], ktere tu cestu da do schranky; 2. radek cim to jede. Ke kteremu panelu patri,
+    pozna podle sve polohy. Po zmene kodu skonci a smycka ho pusti znovu."""
+    import termios
+    code = os.path.getmtime(ME)
+    me = os.environ.get("TMUX_PANE", "")
+    fd = sys.stdin.fileno()
+    try:
+        old = termios.tcgetattr(fd)
+        new = termios.tcgetattr(fd)
+        new[3] &= ~(termios.ECHO | termios.ICANON)
+        termios.tcsetattr(fd, termios.TCSANOW, new)
+    except termios.error:
+        old = None
+    out = sys.stdout
+    out.write("\x1b[?25l\x1b[?7l\x1b[?1000h\x1b[?1006h")
+    BG, FG = "\x1b[48;5;235m", "\x1b[22;38;5;250m"
+    shown, buttons = None, []
+    shows, asked = "", (0.0, "")       # ptat se programu nejvys jednou za 2 s
+    try:
+        while os.path.getmtime(ME) == code:
+            L = lay()
+            n = next((s for s, b in L["st"].items() if b and b["id"] == me), 0)
+            p = panel(L, n) if n else None
+            if p and (time.time() - asked[0] > 2 or asked[1] != p["id"]):
+                shows, asked = panel_shows(p), (time.time(), p["id"])
+            app = panel_app(p)
+            opts = switch_options(p, shows)
+            size = shutil.get_terminal_size((80, STITEK_H))
+            state = (size, n, shows, app, tuple((o[0], o[2]) for o in opts))
+            if state != shown:
+                buttons = []
+                path = shows if shows and shows != "pindání" else ""
+                cp = "[copy]" if path else ""
+                # [copy] hned za cestou; dlouha cesta se zkrati, at se vejde
+                txt = cut(" " + short(path), max(0, size.columns - len(cp) - 1)) if path else ""
+                row1 = "\x1b[38;5;252m%s%s" % (txt, FG)
+                if cp:
+                    xc = cwidth(txt) + 2
+                    buttons.append((1, xc, xc + len(cp) - 1, ["--toggle", "copy%d" % n]))
+                    row1 += " \x1b[38;5;110m%s%s" % (cp, FG)
+                row2 = "\x1b[38;5;244m %s%s" % (app, FG) if app else ""
+                # vpravo prepinac: interni [x] v panelu, externi ↗x v okne; aktivni oranzove
+                sw = "  ".join(o[0] for o in opts)
+                if opts and cwidth(app) + 4 + cwidth(sw) >= size.columns:
+                    row2, app = "", ""                   # uzky panel: jmeno appky ustoupi prepinaci
+                if opts and cwidth(app) + (4 if app else 1) + cwidth(sw) < size.columns:
+                    x = size.columns - cwidth(sw)
+                    row2 += " " * max(1, x - 1 - cwidth(" " + app)) if app else " " * (x - 1)
+                    for label, internal, active, args_ in opts:
+                        buttons.append((2, x, x + cwidth(label) - 1, ["--switch", "p%d" % n] + args_))
+                        row2 += "\x1b[38;5;%dm%s%s%s  " % (214 if active else 110 if internal else 151,
+                                                           "\x1b[1m" if active else "", label, FG)
+                        x += cwidth(label) + 2
+                rows = ([row1, row2] + [""] * size.lines)[:size.lines]
+                out.write("".join("\x1b[%d;1H%s%s%s\x1b[K" % (i + 1, BG, FG, r)
+                                  for i, r in enumerate(rows)) + "\x1b[0m")
+                out.flush()
+                shown = state
+            r, _, _ = select.select([fd], [], [], 0.5)
+            if not r:
+                continue
+            data = os.read(fd, 1024)
+            for m in RE_SGR.finditer(data):
+                b, mx, my = int(m.group(1)), int(m.group(2)), int(m.group(3))
+                if b != 0 or m.group(4) != b"M":
+                    continue
+                hit = next((a for y, x0, x1, a in buttons if y == my and x0 <= mx <= x1), None)
+                if hit:
+                    subprocess.Popen([ME] + hit, stdin=subprocess.DEVNULL,
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                     start_new_session=True)
+    finally:
+        out.write("\x1b[?1000l\x1b[?1006l\x1b[?7h\x1b[?25h")
+        out.flush()
+        if old:
+            termios.tcsetattr(fd, termios.TCSANOW, old)
+
+
+def copy_path(p):
+    """[copy] na stitku: cestu, kterou panel p ukazuje, dat do schranky."""
+    path = panel_shows(p)
+    if not path or path == "pindání":
+        return "p%d nic neukazuje" % p["slot"] if p else None
+    try:
+        subprocess.run(["xclip", "-selection", "clipboard", "-i"], input=path.encode("utf-8"),
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return "do schránky to nešlo (xclip)"
+    say("ve schránce: %s" % short(path))
+    return None
+
+
+def menu():
+    """Menu nad seznamem: [close] [config] tlacitka koumesu [p1] [p3] [p2], vpravo hlaska.
+    Otevrene panely jsou oranzove (klik do panelu skoci), posledni sedy je dalsi volny
+    (klik ho otevre). Pindani je v liste nad panelem.
+    Klik si cte samo; akci pusti jako samostatny prikaz, at se menu mezitim nezasekne.
+    Po zmene kodu skonci a smycka ho pusti znovu."""
+    import termios
+    code = os.path.getmtime(ME)
+    fd = sys.stdin.fileno()
+    try:
+        old = termios.tcgetattr(fd)
+        new = termios.tcgetattr(fd)
+        new[3] &= ~(termios.ECHO | termios.ICANON)
+        termios.tcsetattr(fd, termios.TCSANOW, new)
+    except termios.error:
+        old = None
+    out = sys.stdout
+    # bez zalamovani: dlouhy radek by panel odroloval a tlacitka by zmizela nahoru
+    out.write("\x1b[?25l\x1b[?7l\x1b[?1000h\x1b[?1006h")
+    BG, FG = "\x1b[48;5;235m", "\x1b[22;38;5;250m"
+    ranges = []                  # (radek, od, do, akce) - sloupce od 1 jako v udalosti mysi
+    shown = None
+    cfg = None
+    buf = b""
+
+    def seg(row, x, text, color, bold=False, name=None):
+        w = cwidth(text)
+        if name:
+            ranges.append((row, x, x + w - 1, name))
+        return x + w, "%s\x1b[38;5;%dm%s%s%s" % ("\x1b[1m" if bold else "", color, text, FG, BG)
+
+    def draw(size, opened, chat, msg, _idle="", busy="", live=()):
+        ranges.clear()
+        x, s = 2, " "
+        used = {int(n) for n in opened.split(",") if n.isdigit()}
+        nxt = next((n for n in range(1, PANEL_MAX + 1) if n not in used), 0)
+        # [close] az kdyz nic nebezi; do te doby misto nej konec zobrazeneho agenta
+        buttons = [("close", "[close]") if not busy else ("exit_actual", "[exit actual]"), ("config", "[config]")] \
+            + [(n, "[%s]" % n) for n in KOUMES_ROOTS] + [("dir", "[dir]")] \
+            + ([("diag", "[diag]")] if DIAG_SCRIPT else []) + [("chat", "[pindání]")]
+        # otevrene panely oranzove (klik = skocit do nej), za nimi dalsi volny sede (klik = otevrit)
+        for n in sorted(used):
+            buttons.append(("p%d" % n, "[p%d]" % n))
+        if nxt:
+            buttons.append(("p%d" % nxt, "[p%d]" % nxt))
+        row, row1, x1 = 1, None, x
+        for name, text in buttons:
+            if name == "dir":
+                # od [dir] druhy radek: prvni radek zustava koumesum a [close]
+                row1, x1, s, x, row = s, x, " ", 2, 2
+            # zlute = ta appka uz bezi; klik ji pak nepousti znovu, jen ji srovna vedle terminalu
+            opened = (name[1:].isdigit() and int(name[1:]) in used) or (name == "chat" and chat)
+            color = (174 if name in ("close", "exit_actual") else 226 if name in live
+                     else 214 if opened else 246)
+            x, part = seg(row, x, text, color, opened, name)
+            s += part + "  "
+            x += 2
+        row2 = s if row1 is not None else ""
+        if row1 is None:
+            row1, x1 = s, x
+        x = x1
+        # vpravo jen hlaska, kdyz clmon4 neco hlasi; nebezici agenti jsou v seznamu pod menu
+        right = (" %s " % msg) if msg else ""
+        rw = cwidth(right)
+        if right and x + rw < size.columns:
+            row1 += " " * (size.columns - rw - x) + "\x1b[48;5;220m\x1b[38;5;16m%s%s%s" % (right, FG, BG)
+        rows = [row1, row2] + [""] * max(0, size.lines - 2)
+        out.write("".join("\x1b[%d;1H%s%s\x1b[K%s" % (r + 1, BG, FG, text)
+                          for r, text in enumerate(rows[:size.lines])) + "\x1b[0m")
+        out.flush()
+
+    try:
+        while os.path.getmtime(ME) == code:
+            rc, st = tmux("display-message", "-p", "#{@panels}%s#{@chat}%s#{@msg}%s#{@idle}%s#{@busy}"
+                         % (SEP, SEP, SEP, SEP))
+            parts = (st.split(SEP) + [""] * 5)[:5]
+            cfg = use_config(cfg)              # zmena config.t2l: tlacitka bez restartu
+            size = shutil.get_terminal_size((80, TBAR_H))
+            live = koumes_live()
+            state = (size, tuple(parts), live, tuple(KOUMES_ROOTS), DIAG_SCRIPT)
+            if state != shown:
+                draw(size, *parts, live=live)
+                shown = state
+            r, _, _ = select.select([fd], [], [], 0.3)
+            if not r:
+                continue
+            buf += os.read(fd, 1024)
+            for m in RE_SGR.finditer(buf):
+                b, mx, my, kind = int(m.group(1)), int(m.group(2)), int(m.group(3)), m.group(4)
+                if b != 0 or kind != b"M":
+                    continue                        # jen stisk leveho tlacitka
+                hit = next((name for row, x0, x1, name in ranges if row == my and x0 <= mx <= x1), None)
+                if hit:
+                    cmd = [ME, "--close"] if hit == "close" else [ME, "--toggle", hit]
+                    subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                     stderr=subprocess.DEVNULL, start_new_session=True)
+            buf = b""
+    finally:
+        out.write("\x1b[?1000l\x1b[?1006l\x1b[?7h\x1b[?25h")
+        out.flush()
+        if old:
+            termios.tcsetattr(fd, termios.TCSANOW, old)
+
+
+def open_panel(n, role, cmd, path=None, run=None):
+    """Dat do panelu pN prohlizec textu (view), editor (edit) nebo pindani (chat);
+    panel se otevre, kdyz neni. n = 0 znamena novy panel s nejnizsim volnym cislem.
+    Vraci (chyba, cislo panelu)."""
+    L = lay()
+    if not L["list"]:
+        return "seznam nebezi", 0
+    if not n:
+        n = free_slot(L)
+        if not n:
+            return "víc panelů než p%d nejde" % PANEL_MAX, 0
+    if not leave_editor(n, L):
+        return EDIT_BUSY % n, n
+    L = lay()
+    p = panel(L, n)
+    old = None                                    # sirky sloupcu pred novym panelem
+    if p:
+        pid = p["id"]
+        popt(pid, "@title", "")
+        tmux("respawn-pane", "-k", "-t", pid, cmd)
+    else:
+        old = [c["w"] for k, c in columns(L)]
+        busy(True)
+        pid = add_panel(role, want_w(n), HOME, cmd)
+        if not pid:
+            busy(False)
+            return "nejde otevřít p%d" % n, n
+    popt(pid, "@slot", str(n))
+    popt(pid, "@role", role)
+    if path is not None:
+        popt(pid, "@file", path)
+    if run is None and role in ("view", "edit", "hx"):
+        run = ""                                  # soubor misto programu - program zapomenout
+    if run is not None:
+        popt(pid, "@run", run)
+    if role != "run":
+        popt(pid, "@port", "")                    # program skoncil, port uz neni jeho
+    if role == "run":
+        popt(pid, "@title", run)
+    if role == "chat":
+        popt(pid, "@title", "pindání")
+    if old is not None:
+        # novy panel je vpravo s vychozi sirkou, ostatni zustanou, jak byly
+        fit(old + [want_w(n)], right=True)
+        busy(False)
+    ensure_tbars()
+    return None, n
+
+
+def close_panel(n):
+    if not leave_editor(n):
+        return EDIT_BUSY % n
+    p = panel(lay(), n)
+    if p:
+        drop_panel(p)
+    return None
+
+
+EDIT_BUSY = "editor má neuložené změny - odpověz mu v p%d: y uložit, n zahodit, Esc zůstat"
+
+
+def leave_editor(n, L=None):
+    """Slusne ukoncit editor v panelu pN: posle mu Ctrl+Q. Kdyz ma vse ulozene, skonci
+    a v panelu nabehne prohlizec - vraci True. Kdyz se pta na ulozeni, necha ho byt, da mu
+    vstup a vraci False. True vraci i tehdy, kdyz v panelu zadny editor nebezi."""
+    p = panel(L or lay(), n)
+    if not p or p["role"] not in ("edit", "hx"):
+        return True
+    if p["role"] == "hx":
+        # helix: :q s neulozenymi zmenami odmitne a zustane bezet
+        tmux("send-keys", "-t", p["id"], "Escape")
+        tmux("send-keys", "-t", p["id"], "-l", ":q")
+        tmux("send-keys", "-t", p["id"], "Enter")
+    else:
+        tmux("send-keys", "-t", p["id"], "C-q")
+    for _ in range(25):
+        time.sleep(0.1)
+        q = panel(lay(), n)
+        if not q or q["role"] not in ("edit", "hx"):
+            return True
+    tmux("select-pane", "-t", p["id"])
+    return False
+
+
+def edit_cmd(path, line=0):
+    """Editor v panelu. Po jeho zavreni se panel vrati do prohlizece a ukaze ulozenou verzi."""
+    q = shlex.quote(path)
+    plus = " +%d" % line if line > 0 else ""
+    try:
+        os.makedirs(MICRO_DIR, exist_ok=True)
+        bf = os.path.join(MICRO_DIR, "bindings.json")
+        # micro si soubor doplnuje o vlastni zkratky - prepsat jen kdyz v nem Alt+C chybi
+        if not os.path.exists(bf) or '"Alt-c"' not in open(bf, encoding="utf-8").read():
+            with open(bf, "w", encoding="utf-8") as fh:
+                fh.write(MICRO_BINDINGS)
+        conf = " -config-dir %s" % shlex.quote(MICRO_DIR)
+    except OSError:
+        conf = ""
+    return "%s%s%s %s; exec %s" % (EDITOR, conf, plus, q, view_cmd(path))
+
+
+def hx_cmd(path, line=0):
+    """Helix v panelu; po :q se panel vrati do prohlizece."""
+    q = shlex.quote(path + (":%d" % line if line > 0 else ""))
+    return "%s %s; exec %s" % (HX, q, view_cmd(path))
+
+
+# prohlizec souboru, esence polozky TIMEAXIS a adresar v git repu jsou appky
+# (KOUMES_KONZOLE_APPS/viewer.py, timeaxis_item_esence.py, git_list.py), repa taky
+# (repos.py); timeaxis je rezim dirview
+VIEWER = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "KOUMES_KONZOLE_APPS", "viewer.py"))
+ESENCE_APP = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "KOUMES_KONZOLE_APPS",
+                                           "timeaxis_item_esence.py"))
+GIT_LIST = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "KOUMES_KONZOLE_APPS", "git_list.py"))
+REPOS_APP = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "KOUMES_KONZOLE_APPS", "repos.py"))
+CONFIG_VIEW = os.path.join(SCRIPT_DIR, "config_view.py")         # [config]: kde co je na tomhle stroji
+APPS_VIEWER = os.path.join(SCRIPT_DIR, "apps_viewer.py")         # [apps]: prehled appek konzole (lezi u ni)
+
+
+def view_cmd(path, line=0):
+    if (path or "").startswith(ESENCE):
+        return "%s %s" % (shlex.quote(ESENCE_APP), shlex.quote(path[len(ESENCE):]))
+    if path and os.path.isdir(path):
+        return "%s %s" % (shlex.quote(GIT_LIST), shlex.quote(path))
+    if path == REPOS:
+        return shlex.quote(REPOS_APP)
+    if path and not virtual(path) and not os.path.isdir(path):
+        cmd = "%s %s" % (shlex.quote(VIEWER), shlex.quote(path))
+    else:
+        cmd = "%s --view %s" % (shlex.quote(ME), shlex.quote(path or ""))
+    return cmd + (" --line %d" % line if line > 0 else "")
+
+
+def split_lines(path):
+    """`soubor:25` nebo `soubor:25:40` -> (soubor, 25, 40). Bez cisel (soubor, 0, 0)."""
+    m = re.fullmatch(r"(.+?):(\d+)(?::(\d+))?", path or "")
+    if m and not os.path.exists(path):
+        a = int(m.group(2))
+        return m.group(1), a, int(m.group(3) or 0)
+    return path, 0, 0
+
+
+def hx_select(pane_id, first, last):
+    """V helixu, ktery se prave otevrel na radku `first`, vybrat radky first..last
+    (pocet + x). Pocka, az helix nabehne (ve stavovem radku je rezim NOR)."""
+    for _ in range(40):
+        time.sleep(0.1)
+        if " NOR " in tmux("capture-pane", "-p", "-t", pane_id)[1]:
+            break
+    else:
+        return
+    n = last - first + 1
+    if n > 1:
+        tmux("send-keys", "-t", pane_id, "-l", "%dx" % n)
+    else:
+        tmux("send-keys", "-t", pane_id, "x")
+
+
+def tp(n, path, line=0, edit=False, run="", hx=False, last=0):
+    """Pro agenty: ukazat soubor v panelu pN, pripadne rovnou na radku.
+    edit=True ho otevre v editoru (micro), hx=True v helixu (last = vybrat radky
+    line..last), run = misto souboru pustit v panelu program."""
+    L = lay()
+    p = panel(L, n) if n else None
+    if p and p["lock"]:
+        n = unlocked_right(L, p["x"])                 # zamceny panel: obsah do dalsiho
+    if run:
+        if not n:
+            n = free_slot(L)
+        port = 0
+        if run_prog(run) in WS_RUN and "--port" not in run:
+            port = panel_port(L, n)                   # jednotny protokol: prvni volny port
+            run = "%s --port %d" % (run, port)
+        err, n = open_panel(n, "run", run, "", run)
+        p = panel(lay(), n)
+        if p and not err:
+            popt(p["id"], "@port", str(port) if port else "")
+        return err
+    if virtual(path):
+        return open_panel(n, "view", view_cmd(path), path)[0]
+    path = os.path.abspath(os.path.expanduser(path))
+    if hx:
+        if not shutil.which(HX):
+            return "chybí editor %s" % HX
+        if not os.path.exists(path):
+            return "soubor není: %s" % path
+        err, n = open_panel(n, "hx", hx_cmd(path, line), path)
+        if not err:
+            p = panel(lay(), n)
+            if p:
+                popt(p["id"], "@title", "%s · helix · i psát · Esc · :w uložit · :q zavřít"
+                     % short(path))
+                if line > 0:
+                    hx_select(p["id"], line, max(line, last))
+        return err
+    if edit:
+        if not shutil.which(EDITOR):
+            return "chybí editor %s" % EDITOR
+        err, n = open_panel(n, "edit", edit_cmd(path, line), path)
+        if not err:
+            p = panel(lay(), n)
+            if p:
+                popt(p["id"], "@title", "%s · editor · Ctrl+S uložit · Ctrl+Q zavřít · "
+                     "označené myší je hned ve schránce · Alt+C kopíruje" % short(path))
+                tmux("select-pane", "-t", p["id"])
+        return err
+    if not os.path.exists(path):
+        return "soubor není: %s" % path
+    return open_panel(n, "view", view_cmd(path, line), path)[0]
+
+
+def refresh_panel(p):
+    """Tlacitko [refresh]: obnovit obsah panelu podle REFRESH (klavesy do panelu)."""
+    keys = refresh_keys(p)
+    if not keys:
+        return None
+    if p["role"] == "hx":
+        status = tmux("capture-pane", "-p", "-t", p["id"])[1].splitlines()
+        if any("[+]" in line for line in status[-3:]):
+            return "p%d: helix má neuložené změny - nejdřív ulož (:w), pak [refresh]" % p["slot"]
+    for k in keys:
+        if k.startswith("-l"):
+            tmux("send-keys", "-t", p["id"], "-l", k[2:])
+        else:
+            tmux("send-keys", "-t", p["id"], k)
+        time.sleep(0.15)                          # Esc a dalsi klavesa zvlast, jinak z nich je Alt+
+    return None
+
+
+def sh_dir(p):
+    """Kde ma konzole v panelu p zacit: adresar toho, co panel ukazuje, jinak domov."""
+    path = os.path.expanduser(panel_shows(p) or "") if p and p["role"] != "chat" else ""
+    if path and not os.path.isdir(path):
+        path = os.path.dirname(path)
+    return path if path and os.path.isdir(path) else HOME
+
+
+def toggle_sh(n, p):
+    """[>_]: z panelu pN udelat konzoli (bash v adresari toho, co ukazoval); na konzoli
+    znovu = vratit puvodni obsah (soubor, helix nebo program), stejne jako u pindani."""
+    if p and p["role"] == "sh":
+        prev = tmux("show-options", "-pqv", "-t", p["id"], "@prev")[1]
+        if p["run"] and prev in ("run", "chat", ""):
+            return open_panel(n, "run", p["run"], run=p["run"])[0]
+        if prev == "hx" and p["file"]:
+            return tp(n, p["file"], hx=True)
+        if prev == "chat":
+            return open_panel(n, "chat", chat_cmd(), run="")[0]
+        return open_panel(n, "view", view_cmd(p["file"]), p["file"])[0]
+    d = sh_dir(p)
+    if p:
+        popt(p["id"], "@prev", p["role"])
+    return open_panel(n, "sh", "cd %s && exec bash -l" % shlex.quote(d),
+                      run=p["run"] if p else "")[0]
+
+
+def show_dir(p):
+    """[← dir]: adresar souboru z panelu p ukazat v prohlizeci adresaru v panelu p1 (vzdy p1),
+    soubor vybrany. Bezi-li v p1 prohlizec adresaru, skoci v nem; jinak se do p1 pusti."""
+    if not p or not p["file"]:
+        return None
+    path = p["file"]
+    q = panel(lay(), 1)
+    if q and q["role"] == "run" and q["port"] and run_prog(q["run"]) == os.path.basename(DIR_VIEWER):
+        arg = '"%s"' % path if " " in path else path     # cmd_sys bere "uvozovky", ne 'apostrofy'
+        if "ERROR" not in panel_ask(q, "chroma_setdir %s" % arg):
+            return None
+    # p1 neni prohlizec adresaru (nebo neodpovida): pustit ho tam - i do zamceneho, p1 je jeho
+    port = panel_port(lay(), 1)
+    run = "%s %s --port %d" % (shlex.quote(DIR_VIEWER), shlex.quote(path), port)
+    err, n = open_panel(1, "run", run, "", run)
+    q = panel(lay(), 1)
+    if q and not err:
+        popt(q["id"], "@port", str(port))
+    return err
+
+
+def panel_port(L, n):
+    """Port pro program v panelu pN: ten, ktery panel uz ma (jeho program se nahradi),
+    jinak prvni volny od PANEL_PORT + 1. Podle cisla panelu ne - panely se daji prohodit
+    ([<] [>]) a program si svuj port bere s sebou; skutecny port ukaze --where / --port."""
+    p = panel(L, n) if n else None
+    if p and p["port"]:
+        return p["port"]
+    used = {q["port"] for q in L["panels"] if q["port"]}
+    port = PANEL_PORT + 1
+    while port in used or port_busy(port):
+        port += 1
+    return port
+
+
+def move_panel(n, d):
+    """[<] / [>]: prohodit obsah panelu pN se sousedem vlevo (d = -1) nebo vpravo (+1).
+    Prohodi se jen terminaly s obsahem; listy a stitky zustanou na miste a poznaji panel
+    podle polohy. Cisla panelu jdou dal zleva doprava, program si bere svuj port s sebou."""
+    L = lay()
+    cols = L["panels"]
+    i = next((k for k, p in enumerate(cols) if p["slot"] == n), -1)
+    j = i + d
+    if i < 0 or not 0 <= j < len(cols):
+        return None
+    a, b = cols[i], cols[j]
+    touch()
+    tmux("swap-pane", "-d", "-s", a["id"], "-t", b["id"])
+    popt(a["id"], "@slot", str(b["slot"]))
+    popt(b["id"], "@slot", str(a["slot"]))
+    touch()
+    return None
+
+
+def unlocked_right(L, x):
+    """Cislo nejblizsiho nezamceneho panelu napravo od sloupce x; 0 = zadny, zalozit novy."""
+    right = [p for p in L["panels"] if p["x"] > x and not p["lock"]]
+    return min(right, key=lambda p: p["x"])["slot"] if right else 0
+
+
+def open_right(pane_id, path, view=False):
+    """Soubor do panelu vpravo od panelu pane_id (nejblizsi napravo); kdyz vpravo zadny
+    neni, otevre se novy - pridava se vzdy uplne vpravo. `soubor:25` otevre na radku 25
+    a vybere ho, `soubor:25:40` vybere radky 25 az 40."""
+    path, line, last = split_lines(path)
+    L = lay()
+    me = next((p for p in panes() if p["id"] == pane_id), None)
+    if not me:
+        return "panel %s neznám" % pane_id
+    n = unlocked_right(L, me["x"])
+    # text do helixu, obrazky a adresare do prohlizece; view = vse do prohlizece
+    text = not view and not os.path.splitext(path)[1].lower() in IMG_EXT and os.path.isfile(path)
+    return tp(n, path, line, hx=text and bool(shutil.which(HX)), last=last)
+
+
+def where():
+    """Pro agenty: co je prave v panelech."""
+    L = lay()
+    if not L["panels"]:
+        print("panely: žádný")
+    for p in L["panels"]:
+        what = panel_shows(p) or ("program bez odpovědi" if p["role"] == "run" else "prázdný")
+        if p["role"] == "run":
+            what += "   [%s%s]" % (run_prog(p["run"]), ", port %d" % p["port"] if p["port"] else "")
+        print("p%d: %s%s%s" % (p["slot"], what, " (editor)" if p["role"] == "edit"
+                                else " (helix)" if p["role"] == "hx" else "",
+                                " 🔒" if p["lock"] else ""))
+    main = L["main"]
+    print("agent: %s" % (main["agent"] if main and main["role"] != "idle" else "žádný"))
+
+
+# Tlacitka instanci koumesu: kazde pusti svuj kod nad svym stromem. Port je pevny, stejny
+# jako v config.t2l te kopie.
+# Instance jsou v config.t2l, record koumes; id je jmeno tlacitka. Plni use_config.
+KOUMES_CODE, KOUMES_PORTS, KOUMES_ROOTS, KOUMES_PYTHON = {}, {}, {}, {}
+
+
+def port_busy(port):
+    """Drzi port nekdo? Zkousi se ho zabrat, ne se na nej pripojit - pripojeni muze
+    projit i na volny port, kdyz v ceste stoji proxy."""
+    import socket
+    with socket.socket() as s:
+        try:
+            s.bind(("127.0.0.1", port))
+        except OSError:
+            return True
+    return False
+
+
+def koumes_port(root):
+    """Port bezici appky nad timhle stromem, jinak 0. Cte se z prikazove radky procesu."""
+    for p in glob.glob("/proc/[0-9]*/cmdline"):
+        try:
+            args = open(p, "rb").read().split(b"\0")
+        except OSError:
+            continue
+        if b"KOUMES.main" not in args or root.encode() not in args:
+            continue
+        if b"--port" in args:
+            i = args.index(b"--port")
+            if i + 1 < len(args) and args[i + 1].isdigit():
+                return int(args[i + 1])
+        return KOUMES_PORT
+    return 0
+
+
+_LIVE = {"t": 0.0, "v": ()}
+
+
+def koumes_live():
+    """Jmena tlacitek, jejichz koumes bezi - ta jsou v menu zlute. Drzi se 2 s,
+    protoze menu se prekresluje kazdych 0,3 s a prohledavat /proc tak casto je zbytecne."""
+    now = time.monotonic()
+    if now - _LIVE["t"] > 2.0:
+        _LIVE["v"] = tuple(n for n, r in KOUMES_ROOTS.items() if koumes_port(r)) \
+            + (("diag",) if diag_running() else ())
+        _LIVE["t"] = now
+    return _LIVE["v"]
+
+
+# Kam koumes patri: vpravo vedle okna terminalu, na jeho vysku; sirka mu zustava.
+# Plati pri spusteni i pri kliku na uz bezici appku. Okno se posouva primo pres wmctrl.
+def _wgeom(wid):
+    """(x, y, w, h) vnitrku okna z X. Ne z wmctrl -lG: u gnome-terminalu vraci
+    nesmyslne x (zdvojene), a okno by pak slo mimo obrazovku."""
+    info = xrun("xwininfo", "-id", wid)
+    vals = {}
+    for key, name in (("Absolute upper-left X:", "x"), ("Absolute upper-left Y:", "y"),
+                      ("Width:", "w"), ("Height:", "h")):
+        m = re.search(re.escape(key) + r"\s*(-?\d+)", info)
+        if not m:
+            return None
+        vals[name] = int(m.group(1))
+    return vals["x"], vals["y"], vals["w"], vals["h"]
+
+
+def _extents(wid, prop):
+    """(vlevo, vpravo, nahore, dole) z vlastnosti okna, jinak nuly."""
+    m = re.search(r"=\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+)", xrun("xprop", "-id", wid, prop))
+    return tuple(int(v) for v in m.groups()) if m else (0, 0, 0, 0)
+
+
+def _koumes_win(root):
+    """Id okna koumesu nad timhle stromem: titulek je `KOUMES  <strom>`."""
+    for line in xrun("wmctrl", "-l").splitlines():
+        f = line.split(None, 3)
+        if len(f) == 4 and f[3].split() == ["KOUMES", root]:
+            return f[0]
+    return ""
+
+
+def koumes_place(root):
+    """Postavit okno koumesu vpravo vedle terminalu na jeho vysku. Vraci hlasku, nebo None."""
+    return win_place(_koumes_win(root), "koumesu")
+
+
+PLACE_MARGIN = 30           # srovnane okno nekonci natesno u praveho okraje monitoru
+
+
+def _monitor_at(px, py):
+    """(x, y, w, h) monitoru, na kterem lezi bod, z xrandr; None, kdyz zadny."""
+    for line in xrun("xrandr", "--query").splitlines():
+        if " connected" not in line:
+            continue
+        m = re.search(r"(\d+)x(\d+)\+(\d+)\+(\d+)", line)
+        if not m:
+            continue
+        w, h, x, y = (int(v) for v in m.groups())
+        if x <= px < x + w and y <= py < y + h:
+            return x, y, w, h
+    return None
+
+
+def win_place(win, what):
+    """Postavit okno vpravo vedle terminalu na jeho vysku. Kdyz by pres pravy okraj
+    monitoru s terminalem precnivalo, zuzi se. Vraci hlasku, nebo None."""
+    term = our_window() or active_window()
+    tg = _wgeom(term) if term else None
+    kg = _wgeom(win) if win else None
+    if not tg:
+        return "nejde zjistit, kde je okno terminálu"
+    if not kg:
+        return "okno %s nenašel" % what
+    tx, ty, tw, th = tg
+    # Viditelna vyska: terminal (gnome-terminal) ma v okne neviditelny stin
+    # (_GTK_FRAME_EXTENTS), koumesu kresli titulek spravce oken nad oknem
+    # (_NET_FRAME_EXTENTS). Srovnat viditelny horni a dolni okraj.
+    _, _, st, sb = _extents(term, "_GTK_FRAME_EXTENTS")
+    _, _, ft, fb = _extents(win, "_NET_FRAME_EXTENTS")
+    ky = ty + st + ft
+    kh = max(100, ty + th - sb - fb - ky)
+    want = (tx + tw, ky)
+    # sirka: nevejde-li se na monitor terminalu, zuzit po jeho pravy okraj minus
+    # PLACE_MARGIN (vcetne ramu)
+    kw = kg[2]
+    fl, fr, _, _ = _extents(win, "_NET_FRAME_EXTENTS")
+    mon = _monitor_at(tx + tw - 1, ty + th // 2)
+    if mon:
+        room = mon[0] + mon[2] - PLACE_MARGIN - want[0] - fl - fr
+        kw = max(200, min(kw, room))
+    # nejdriv zuzit na miste, pak posunout: siroke okno by spravce oken pri posunu
+    # k okraji odtlacil zpet na obrazovku a pak by precnivalo
+    xrun("wmctrl", "-i", "-r", win, "-e", "0,-1,-1,%d,%d" % (kw, kh))
+    time.sleep(0.3)
+    # wmctrl stavi ram okna, xwininfo hlasi vnitrek - po prvnim posunu dorovnat o rozdil
+    x, y = want
+    for _ in range(2):
+        xrun("wmctrl", "-i", "-r", win, "-e", "0,%d,%d,%d,%d" % (x, y, kw, kh))
+        time.sleep(0.3)
+        now = _wgeom(win)
+        if not now or (now[0], now[1]) == want:
+            break
+        x, y = x + want[0] - now[0], y + want[1] - now[1]
+    return None
+
+
+def koumes_start(name):
+    """Tlacitko: kdyz koumes nebezi, pustit ho, kdyz bezi, jen ho srovnat vedle
+    terminalu. Druha kopie nad tymz stromem se nepousti."""
+    root = KOUMES_ROOTS[name]
+    where = name
+    port = koumes_port(root)
+    if port:
+        return koumes_place(root) or "koumes na %s srovnán vedle terminálu" % where
+    port = KOUMES_PORTS[name]
+    if port_busy(port):
+        return "port %d je obsazený, koumes na %s nejde pustit" % (port, where)
+    try:
+        subprocess.Popen([KOUMES_PYTHON[name], "-m", "KOUMES.main", root, "--port", str(port)],
+                         cwd=KOUMES_CODE[name], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError as e:
+        return "koumes nejde pustit: %s" % e
+    # pockat, az si vezme port, a hned ho postavit tam, kam patri. Bezi to v samostatnem
+    # procesu tlacitka, takze cekanim se menu nezasekne.
+    for _ in range(40):
+        time.sleep(0.5)
+        if _koumes_win(root):
+            time.sleep(1.0)
+            koumes_place(root)
+            break
+    return "koumes na %s se spouští, port %d" % (where, port)
+
+
+# Tlacitko [diag]: prohlizec diagramu (APPS/DIAG_VIEW) samostatne, mimo koumes, aby se
+# po zmene kodu nemusel restartovat koumes. Okno se staví jako koumes.
+DIAG_SCRIPT, DIAG_FILE, DIAG_PYTHON = "", "", ""      # config.t2l, record diag; plni use_config
+
+
+def dir_start():
+    """Tlacitko [dir]: prohlizec adresaru (CPPBROWSE) v p1. Kdyz v p1 uz bezi, jen do nej skocit."""
+    q = panel(lay(), 1)
+    if q and q["role"] == "run" and run_prog(q["run"]) == os.path.basename(DIR_VIEWER):
+        tmux("select-pane", "-t", q["id"])
+        return None
+    return tp(1, None, run="%s %s" % (DIR_VIEWER, shlex.quote(config.tree())))
+
+
+def diag_running():
+    if not DIAG_SCRIPT:
+        return False
+    for p in glob.glob("/proc/[0-9]*/cmdline"):
+        try:
+            args = open(p, "rb").read().split(b"\0")
+        except OSError:
+            continue
+        if len(args) > 1 and args[0].endswith(b"python") and DIAG_SCRIPT.encode() in args:
+            return True
+    return False
+
+
+def _diag_win():
+    """Id okna prohlizece: titulek zacina `DIAG_VIEW `."""
+    for line in xrun("wmctrl", "-l").splitlines():
+        f = line.split(None, 3)
+        if len(f) == 4 and f[3].startswith("DIAG_VIEW "):
+            return f[0]
+    return ""
+
+
+def diag_start():
+    """Kdyz prohlizec nebezi, pustit ho; kdyz bezi, jen ho srovnat vedle terminalu."""
+    if diag_running():
+        return win_place(_diag_win(), "diagramu") or "diag srovnán vedle terminálu"
+    try:
+        subprocess.Popen([DIAG_PYTHON, "-B", DIAG_SCRIPT, DIAG_FILE], cwd="/tmp",
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError as e:
+        return "diag nejde pustit: %s" % e
+    for _ in range(20):
+        time.sleep(0.5)
+        if _diag_win():
+            time.sleep(0.5)
+            win_place(_diag_win(), "diagramu")
+            break
+    return "diag se spouští"
+
+
+def toggle(name):
+    """Tlacitka a klavesy: pN = otevrit panel pN (prazdny prohlizec), xN = zavrit pN,
+    chatN = panel pN mezi pindanim a puvodnim obsahem, lockN = zamknout / odemknout pN,
+    chat = [pindani] z menu (prvni nezamceny panel, jinak novy), pnext = dalsi panel s nejnizsim volnym cislem."""
+    name = name or ""
+    if name in KOUMES_ROOTS:
+        return koumes_start(name)
+    if name == "diag":
+        return diag_start()
+    if name == "dir":
+        return dir_start()
+    if name == "config":
+        return tp(1, None, run=shlex.quote(CONFIG_VIEW))
+    if name == "exit_actual":
+        return exit_actual()
+    if re.fullmatch(r"a\d+", name):
+        return show(int(name[1:]), True, start=True)      # klik na jmeno v radku nebezicich pusti
+    L = lay()
+    m = re.fullmatch(r"(p|x|chat|lock|refresh|updir|copy|sh|mvl|mvr|repos|timeax|apps)(\d+)", name)
+    if m:
+        kind, n = m.group(1), int(m.group(2))
+        if kind in ("mvl", "mvr"):
+            return move_panel(n, -1 if kind == "mvl" else 1)
+        p = panel(L, n)
+        if kind == "copy":
+            return copy_path(p)
+        if kind == "refresh":
+            return refresh_panel(p)
+        if kind == "updir":
+            return show_dir(p)
+        if kind == "repos":
+            return tp(n, REPOS)                   # [repos] v liste panelu: repa v tomhle panelu
+        if kind == "apps":
+            return tp(n, None, run=shlex.quote(APPS_VIEWER))   # [apps] v liste panelu: prehled appek
+        if kind == "timeax":
+            # [timeax] v liste panelu: dirview v rezimu timeaxis v tomhle panelu
+            return tp(n, None, run="%s timeaxis:" % shlex.quote(DIR_VIEWER))
+        if kind == "sh":
+            return toggle_sh(n, p)
+        if kind == "lock":
+            if p:
+                popt(p["id"], "@lock", "" if p["lock"] else "1")
+            return None
+        if kind == "x":
+            return close_panel(n)
+        if kind == "p":
+            if p:                                 # otevreny panel: jen do nej skocit
+                tmux("select-pane", "-t", p["id"])
+                return None
+            return open_panel(n, "view", view_cmd(""), "")[0]
+        # pindani <-> puvodni obsah panelu (soubor, helix nebo program), panel zustava otevreny
+        if p and p["role"] == "chat":
+            if p["run"]:                          # pred pindanim tu bezel program - pustit ho znovu
+                return open_panel(n, "run", p["run"], run=p["run"])[0]
+            if tmux("show-options", "-pqv", "-t", p["id"], "@prev")[1] == "hx" and p["file"]:
+                return tp(n, p["file"], hx=True)
+            return open_panel(n, "view", view_cmd(p["file"]), p["file"])[0]
+        if p:
+            popt(p["id"], "@prev", p["role"])
+        return open_panel(n, "chat", chat_cmd(), run=p["run"] if p else "")[0]
+    if name == "pnext":
+        return open_panel(0, "view", view_cmd(""), "")[0]
+    if name == "chat":
+        # [pindani] v menu: ukaze se v prvnim nezamcenem panelu zleva, jinak v novem.
+        # Znovu = panel se vrati k tomu, co v nem bylo (soubor nebo program).
+        p = next((p for p in L["panels"] if p["role"] == "chat"), None)
+        if p:
+            return toggle("chat%d" % p["slot"])
+        free = [p for p in L["panels"] if not p["lock"]]
+        if free:
+            return toggle("chat%d" % min(free, key=lambda p: p["x"])["slot"])
+        return open_panel(0, "chat", chat_cmd(), run="")[0]
+    return None
+
+
+# ---- prepinani agentu ------------------------------------------------------------------
+def launch(idx):
+    """Pustit agenta idx na pozadi, bez prepinani toho, co je dole.
+    Vraci (chyba, id panelu)."""
+    items = entries()
+    if idx < 0 or idx >= len(items):
+        return "položka %d není" % (idx + 1), None
+    label, path = items[idx]
+    ps = panes()
+    st, sess = state_of(label, path, ps, load_agents(load_conf_names()))
+    pane = pane_of(label, ps)
+    if st == "jinde":
+        return "%s běží mimo clmon (pid %d) - ukonči ji tam a pusť odsud" % (label, sess["pid"]), None
+    if st == "here":
+        if pane:
+            return None, pane["id"]
+        return "%s běží v clmon, ale její panel neznám" % label, None
+    if not os.path.isdir(path):
+        return "adresář %s není" % path, None
+    if st == "shell" and pane:
+        # session skoncila, v panelu zbyl bash - pustit ji v nem znovu
+        wake(pane["id"])
+        tmux("send-keys", "-t", pane["id"], "-l",
+             "cd %s && %s" % (shlex.quote(path), agent_inner(label, path)))
+        tmux("send-keys", "-t", pane["id"], "Enter")
+        return None, pane["id"]
+    rc, pid = tmux("new-window", "-d", "-t", "ui:", "-n", label, "-c", path,
+                   "-P", "-F", "#{pane_id}", agent_cmd(label, path))
+    if rc != 0 or not pid:
+        return "nejde založit panel pro " + label, None
+    popt(pid, "@agent", label)
+    return None, pid
+
+
+def free_worker():
+    """Cislo polozky volneho workera s nejnizsim indexem (T1 pred T2 ...), nebo -1."""
+    for i, label, path, st, _ in rows_state():
+        if is_worker(path) and st in ("off", "shell"):
+            return i
+    return -1
+
+
+def start_cli(arg):
+    """Pro agenty: pustit polozku na pozadi. arg = `worker` (volny s nejnizsim cislem),
+    cislo ze seznamu, nebo kus jmena. Vypise, koho pustil."""
+    items = entries()
+    if arg == "worker":
+        idx = free_worker()
+        if idx < 0:
+            return "žádný worker není volný"
+    elif arg.isdigit():
+        idx = int(arg) - 1
+    else:
+        exact = [i for i, (label, _) in enumerate(items) if label.split()[-1].lower() == arg.lower()]
+        hits = exact or [i for i, (label, _) in enumerate(items) if arg.lower() in label.lower()]
+        if len(hits) != 1:
+            return "jméno `%s` sedí na %d položek" % (arg, len(hits))
+        idx = hits[0]
+    err, _ = launch(idx)
+    if err:
+        return err
+    print(items[idx][0])
+    return None
+
+
+def show(idx, focus=True, start=True):
+    """Dat agenta idx do terminalu dole. Vraci None, nebo text, proc to neslo.
+    start=False (klik mysi) jen prepina - agenta, ktery nebezi, nepusti."""
+    items = entries()
+    if idx < 0 or idx >= len(items):
+        return None
+    label, path = items[idx]
+    ps = panes()
+    L = lay(ps)
+    if not L["list"]:
+        return "seznam nebezi"
+    target = pane_of(label, ps)
+    if target and start:
+        # po /exit zbyl v panelu bash - klik ho ma pustit znovu, ne jen ukazat shell
+        st, _ = state_of(label, path, ps, load_agents(load_conf_names()))
+        if st == "shell":
+            err, _ = launch(idx)
+            if err:
+                return err
+    if not target:
+        if not start:
+            st, sess = state_of(label, path, ps, load_agents(load_conf_names()))
+            if st == "jinde":
+                return "%s běží mimo clmon (pid %d) - přepnout na ni tady nejde" % (label, sess["pid"])
+            return "%s neběží" % label
+        err, pid = launch(idx)
+        if err:
+            return err
+        target = {"id": pid}
+    main = L["main"]
+    main_id = main["id"] if main else ensure_main(L)
+    if not main_id:
+        return "nejde založit místo pro agenta"
+    if main_id != target["id"]:
+        tmux("swap-pane", "-d", "-s", target["id"], "-t", main_id)
+        if not main or main["role"] == "idle":
+            tmux("kill-pane", "-t", main_id)      # prazdne misto uz neni potreba
+    if focus:
+        wake(target["id"])
+        tmux("select-pane", "-t", target["id"])
+    return None
+
+
+def dblclick(idx):
+    """Dvojklik v seznamu: nebezici agenta pusti, bezicimu posle /exit."""
+    items = entries()
+    if idx < 0 or idx >= len(items):
+        return None
+    label, path = items[idx]
+    ps = panes()
+    st, sess = state_of(label, path, ps, load_agents(load_conf_names()))
+    pane = pane_of(label, ps)
+    if st == "jinde":
+        return "%s běží mimo clmon (pid %d) - ukonči ji tam a pusť odsud" % (label, sess["pid"])
+    if st == "off":
+        return show(idx, True, start=True)
+    if not pane:
+        return "%s běží v clmon, ale její panel neznám" % label
+    wake(pane["id"])
+    if st == "here":
+        tmux("send-keys", "-t", pane["id"], "-l", "/exit")
+        tmux("send-keys", "-t", pane["id"], "Enter")
+        return "%s: posláno /exit" % label
+    # shell: session skoncila, v panelu zbyl bash - pustit ji v nem znovu
+    tmux("send-keys", "-t", pane["id"], "-l",
+         "cd %s && %s" % (shlex.quote(path), agent_inner(label, path)))
+    tmux("send-keys", "-t", pane["id"], "Enter")
+    return show(idx, True)
+
+
+def close_all():
+    """Prikaz [close]: ukoncit clmon4, ale jen kdyz v nem nebezi zadny agent. Agenty
+    nezavira - kdyz nejaky bezi, jen nahore napise, koho ma uzivatel nejdriv tipnout.
+    Okno terminalu se vrati na puvodni sirku a zustane v nem obycejny shell."""
+    here = [label for _, label, _, st, _ in rows_state() if st == "here"]
+    if here:
+        say("nejdřív tipni běžící: " + ", ".join(here))
+        return
+    for p in lay()["panels"]:
+        if not leave_editor(p["slot"]):
+            say(EDIT_BUSY % p["slot"])
+            return
+    for p in reversed(lay()["panels"]):
+        drop_panel(p)                      # zavrit panely, at se okno zuzi zpatky
+    tmux("kill-server")
+
+
+def exit_actual():
+    """[exit actual]: zobrazenemu agentovi poslat /exit."""
+    main = lay()["main"]
+    label = main["agent"] if main and main["role"] != "idle" else ""
+    idx = next((i for i, (lab, _) in enumerate(entries()) if lab == label), -1)
+    return deactivate(idx) if label and idx >= 0 else "no agent is shown"
+
+
+def icon_col(idx):
+    """Sloupec kolecka stavu. Radek seznamu je: sipka (2 sloupce), cislo s mezerou, kolecko.
+    Stejne ho kresli ListUi.draw."""
+    return 2 + len("%d " % (idx + 1))
+
+
+def on_icon(idx, x, armed=False):
+    """Padl klik na kolecko stavu? Kdyz sviti stitek /exit, plati cela jeho sirka."""
+    col = icon_col(idx)
+    return col <= x <= col + (len(ARM_LABEL) - 1 if armed else 1)
+
+
+def deactivate(idx):
+    """Klik na kolecko stavu: bezicimu agentovi poslat /exit."""
+    items = entries()
+    if idx < 0 or idx >= len(items):
+        return None
+    label, path = items[idx]
+    ps = panes()
+    st, sess = state_of(label, path, ps, load_agents(load_conf_names()))
+    pane = pane_of(label, ps)
+    if st == "jinde":
+        return "%s běží mimo clmon (pid %d) - ukončit ji jde jen tam" % (label, sess["pid"])
+    if st != "here" or not pane:
+        return None
+    wake(pane["id"])
+    tmux("send-keys", "-t", pane["id"], "-l", "/exit")
+    tmux("send-keys", "-t", pane["id"], "Enter")
+    return "%s: posláno /exit" % label
+
+
+def list_click(y, x, double=False):
+    """Klik v seznamu bezicich: na kolecko = ukoncit, jinde = prepnout; dvojklik = /exit."""
+    idx = row_to_idx(y)
+    if idx < 0:
+        return None
+    if on_icon(idx, x):
+        return None if double else deactivate(idx)     # druhy klik dvojkliku uz nic neposila
+    return dblclick(idx) if double else show(idx, True, start=False)
+
+
+def number(n):
+    """Cislo z klavesnice: 0 = pindani, 1-9 = agent podle poradi v seznamu."""
+    return toggle("chat") if n == 0 else show(n - 1, True)
+
+
+KEYS = r'''
+# Vygenerovano clmon4 pri startu seznamu - neupravovat rucne.
+# Mys: v seznamu klik prepne a dvojklik pusti / posle /exit.
+# Jinde se mys chova jako v tmuxu vzdy.
+# Seznam agentu si mys cte sam (klik, dvojklik i najeti na kolecko), tmux mu udalosti jen
+# preda. Odjeti mysi ze seznamu tmux 3.4 hlasit neumi, proto stitek mizi casem sam.
+bind -n MouseDown1Pane if -F -t= "#{m/r:^(list|menu|tbar)$,#{@role}}" {
+    send-keys -M -t=
+} {
+    select-pane -t=
+    send-keys -M
+}
+bind -n DoubleClick1Pane if -F -t= "#{==:#{@role},list}" {
+    send-keys -M -t=
+} {
+    if -F -t= "#{m/r:^(view|chat|idle|tbar|menu)$,#{@role}}" {
+        if -F -t= "#{!=:#{m/r:^(tbar|menu)$,#{@role}},1}" { select-pane -t= }
+    } {
+        if -F -t= "#{==:#{@role},edit}" {
+            select-pane -t=
+            send-keys -M
+            send-keys -t= M-c
+        } {
+            select-pane -t=
+            if -F "#{||:#{pane_in_mode},#{mouse_any_flag}}" { send-keys -M } {
+                copy-mode -H
+                send-keys -X select-word
+                send-keys -X copy-pipe-no-clear
+                run -b "ME --say 'slovo je ve schránce'"
+                run -d 1.5
+                if -F -t= "#{pane_in_mode}" { send-keys -t= -X cancel }
+            }
+        }
+    }
+}
+# Oznaceni mysi v terminalu agenta: text jde pri pusteni tlacitka do schranky. Vyber
+# zustane chvili videt a nahore se napise, ze je zkopirovany - jinak by hned zmizel
+# a vypadalo by to, ze se nic neoznacilo.
+# Radky odstavce se pri tom slepi mezerou (agent si text lame sam a do schranky by sel
+# rozsekany); prazdny radek zustava jako hranice odstavce. S Ctrl zustanou radky, jak jsou.
+bind -T copy-mode MouseDragEnd1Pane {
+    send-keys -X copy-pipe-no-clear "ME --copy join"
+    run -d 1.5
+    if -F -t= "#{pane_in_mode}" { send-keys -t= -X cancel }
+}
+bind -T copy-mode C-MouseDragEnd1Pane {
+    send-keys -X copy-pipe-no-clear "ME --copy raw"
+    run -d 1.5
+    if -F -t= "#{pane_in_mode}" { send-keys -t= -X cancel }
+}
+# Pravy klik v terminalu agenta a v editoru vlozi schranku, jako Ctrl+V. Jinde zatim nic -
+# vychozi menu tmuxu (Swap, Kill, Zoom...) v clmon4 nema co delat. Alt + pravy ho ukaze.
+bind -n MouseDown3Pane if -F -t= "#{!=:#{m/r:^(list|idle|view|chat|run|tbar|menu)$,#{@role}},1}" {
+    select-pane -t=
+    if -F -t= "#{pane_in_mode}" { send-keys -t= -X cancel }
+    run -b "ME --paste '#{pane_id}'"
+}
+# Tazeni s Ctrl musi vyber zacit a tahnout stejne jako tazeni bez nej.
+bind -n C-MouseDrag1Pane if -F -t= "#{!=:#{m/r:^(tbar|menu)$,#{@role}},1}" {
+    if -F "#{||:#{pane_in_mode},#{mouse_any_flag}}" { send-keys -M } { copy-mode -M }
+}
+# Tazeni v liste nastroju nic neoznacuje.
+bind -n MouseDrag1Pane if -F -t= "#{!=:#{m/r:^(tbar|menu)$,#{@role}},1}" {
+    if -F "#{||:#{pane_in_mode},#{mouse_any_flag}}" { send-keys -M } { copy-mode -M }
+}
+bind -T copy-mode C-MouseDrag1Pane {
+    select-pane
+    send-keys -X begin-selection
+}
+# V editoru (panel pN) se oznaceni mysi hned kopiruje: po pusteni tlacitka posle tmux editoru
+# Alt+C. Terminal ma Ctrl+C zabrane pro sebe a do editoru ho nepusti.
+bind -n MouseDragEnd1Pane if -F -t= "#{==:#{@role},edit}" {
+    send-keys -M
+    send-keys -t= M-c
+} {
+    send-keys -M
+}
+# Kolecko: v panelech pN a pindani posouva obsah; v seznamu nic; u agenta listuje historii.
+bind -n WheelUpPane if -F -t= "#{m/r:^(view|chat)$,#{@role}}" {
+    send-keys -t= -N 3 Up
+} {
+    if -F -t= "#{m/r:^(list|idle)$,#{@role}}" { select-pane -t= } {
+        if -F -t= "#{!=:#{m/r:^(tbar|menu)$,#{@role}},1}" { if -F "#{||:#{pane_in_mode},#{mouse_any_flag}}" { send-keys -M } { copy-mode -e } }
+    }
+}
+bind -n WheelDownPane if -F -t= "#{m/r:^(view|chat)$,#{@role}}" {
+    send-keys -t= -N 3 Down
+} {
+    send-keys -M
+}
+# Horni lista: [close] zavre clmon4, kdyz nic nebezi, ostatni tlacitka prepinaji. Klik na jmeno v radku
+# nebezicich personu nebo workera pusti. Dvojklik tam nic navic nedela - druhy klik by
+# jinak cerstve pustenemu agentovi poslal /exit.
+bind -n MouseDown1Status if -F "#{==:#{mouse_status_range},close}" {
+    run -b "ME --close"
+} {
+    run -b "ME --toggle '#{mouse_status_range}'"
+}
+unbind -n DoubleClick1Status
+# Sirky sloupcu: hrana meni jen sva dve okna (tmux), pod MIN_PX se nejde (clamp hned pri
+# kazdem pohybu mysi). Zmena okna terminalu jde cela do krajniho sloupce (fit).
+bind -n MouseDrag1Border {
+    resize-pane -M
+    run -b "ME --clamp"
+}
+bind -n MouseDragEnd1Border {
+    run -b "ME --clamp"
+}
+set-hook -g client-resized {
+    run -b "ME --fit"
+}
+'''
+
+
+def bind_keys(list_pane=""):
+    """Klavesy a mys. F12 + klavesa vzdy, Alt + klavesa kdyz ji terminal pusti."""
+    q = shlex.quote(ME)
+    lines = [KEYS.replace("ME", q).replace("LISTPANE", list_pane or "ui:0.0")]
+    for n in range(10):
+        lines.append('bind %d run -b "%s --number %d"' % (n, q, n))
+        lines.append('bind -n M-%d run -b "%s --number %d"' % (n, q, n))
+    for key, arg in (("Up", "--focus-list"), ("Down", "--focus-agent"), ("z", "--zoom"),
+                     ("p", "--toggle pnext")):
+        lines.append('bind %s run -b "%s %s"' % (key, q, arg))
+        lines.append('bind -n M-%s run -b "%s %s"' % (key, q, arg))
+    with open(KEYS_CONF, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    rc, _ = tmux("source-file", KEYS_CONF)
+    return rc == 0
+
+
+# ---- spolecne pro curses casti -----------------------------------------------------------
+class Ui:
+    def __init__(self, scr):
+        self.scr = scr
+        curses.curs_set(0)
+        curses.use_default_colors()
+        self.pal = {}
+        if curses.has_colors():
+            for i, c in enumerate([curses.COLOR_GREEN, curses.COLOR_YELLOW, curses.COLOR_CYAN,
+                                   curses.COLOR_RED, curses.COLOR_BLUE, curses.COLOR_MAGENTA], 1):
+                curses.init_pair(i, c, -1)
+            self.pal = {"busy": curses.color_pair(1) | curses.A_BOLD,
+                        "active": curses.color_pair(2) | curses.A_BOLD,
+                        "info": curses.color_pair(3), "warn": curses.color_pair(4),
+                        "dir": curses.color_pair(5) | curses.A_BOLD,
+                        "key": curses.color_pair(3), "head": curses.color_pair(6) | curses.A_BOLD,
+                        "code": curses.color_pair(1)}
+            curses.init_pair(30, curses.COLOR_BLACK, curses.COLOR_YELLOW)
+            self.pal["arm"] = curses.color_pair(30)          # cerne na zlutem
+            # Zakladni zluta je v gnome-terminalu hneda. Pro kontext opravdova zluta
+            # z 256 barev, a cervena k ni taky jasna.
+            big = curses.COLORS >= 256
+            curses.init_pair(31, 226 if big else curses.COLOR_YELLOW, -1)
+            curses.init_pair(32, 196 if big else curses.COLOR_RED, -1)
+            self.pal["ctx_warn"] = curses.color_pair(31)
+            # agent na jinem PC: tmave oranzova
+            curses.init_pair(35, 166 if big else curses.COLOR_YELLOW, -1)
+            self.pal["remote"] = curses.color_pair(35)
+            self.pal["ctx_high"] = curses.color_pair(32) | curses.A_BOLD
+            # stav agenta: waiting = ceka na uzivatele (podkres cervene, blika), busy = cerveny text
+            curses.init_pair(33, curses.COLOR_WHITE, 196 if big else curses.COLOR_RED)
+            self.pal["st_wait"] = curses.color_pair(33) | curses.A_BOLD | curses.A_BLINK
+            self.pal["st_busy"] = curses.color_pair(32) | curses.A_BOLD
+            # aktivni agent v seznamu: cerne na 214 jako stitek agenta v ramecku panelu (tab)
+            curses.init_pair(34, 16 if big else curses.COLOR_BLACK, 214 if big else curses.COLOR_YELLOW)
+            self.pal["tab"] = curses.color_pair(34) | curses.A_BOLD
+        # Mys se v curses necte: pri tazeni ceka na zbytek udalosti a program zamrzne.
+        # Kliky resi tmux (bind_keys), sem chodi jen klavesy.
+        scr.timeout(1000)
+        self.pane = os.environ.get("TMUX_PANE", "")
+
+    def put(self, y, x, s, attr=0):
+        h, w = self.scr.getmaxyx()
+        if y < 0 or y >= h or x >= w - 1:
+            return x
+        s = cut(s, w - 1 - x)
+        try:
+            self.scr.addstr(y, x, s, attr)
+        except curses.error:
+            pass
+        return x + cwidth(s)
+
+    def title(self, text):
+        if self.pane:
+            popt(self.pane, "@title", text)
+
+    @staticmethod
+    def close(name):
+        """Zavrit vlastni panel. Dela to tmux zvenci: kdyby si panel zavrel sam sebe,
+        skoncil by driv, nez se okno stihne zuzit."""
+        tmux("run-shell", "-b", "%s --toggle %s" % (shlex.quote(ME), name))
+
+
+# ---- seznam agentu (nahore) ----------------------------------------------------------------
+# Avatar aktivniho agenta: samostatny panel vlevo vedle seznamu, stejne vysoky. Obrazek je na
+# sirku panelu a co se pod seznam nevejde, je urizle. Jeden PNG na personu,
+# jmeno = jmeno persony (KAREL.png); workeri T1-T6 maji WORKERS.png, odkladiste T TEMP.png,
+# kdyz dole nikdo neni, je tam PARTA.png. Vyrezy z plakatu jsou 220x318.
+AVATAR_DIR = ""       # plni use_config
+AVATAR_W = 32                          # sirka panelu s avatarem
+
+
+def avatar_path(label):
+    name = label.split()[-1].upper() if label else "PARTA"
+    if re.fullmatch(r"T\d", name):
+        name = "WORKERS"
+    elif name == "T":
+        name = "TEMP"
+    path = os.path.join(AVATAR_DIR, name + ".png")
+    return path if AVATAR_DIR and os.path.isfile(path) else None
+
+
+def ensure_avatar(L):
+    """Panel s avatarem vlevo vedle seznamu (deli radek seznamu, okno se nemeni).
+    Stary sloupec pres celou vysku okna zrusi a okno o nej zuzi."""
+    lp, av = L["list"], L["avatar"]
+    if not lp or lp["zoom"]:
+        return False
+    if av and av["h"] == lp["h"]:
+        if av["w"] != AVATAR_W:               # sirku drzet (tmux ji pri deleni zaokrouhli)
+            touch()
+            tmux("resize-pane", "-t", av["id"], "-x", AVATAR_W)
+            touch()
+        return False
+    touch()
+    if av:                                    # puvodni sloupec pres celou vysku
+        tmux("kill-pane", "-t", av["id"])
+        grow(-(av["w"] + 1))
+    rc, pid = tmux("split-window", "-d", "-h", "-b", "-l", AVATAR_W, "-t", lp["id"],
+                   "-c", HOME, "-P", "-F", "#{pane_id}",
+                   "while :; do %s --avatar; sleep 1; done" % shlex.quote(ME))
+    if rc == 0 and pid:
+        popt(pid, "@role", "avatar")
+    touch()
+    return True
+
+
+def avatar():
+    """Panel s avatarem: obrazek agenta, ktery je dole, na sirku panelu; spodek, ktery se
+    nevejde, je urizly.
+    Prekresli se pri zmene agenta, velikosti nebo souboru; po zmene kodu skonci."""
+    code = os.path.getmtime(ME)
+    out = sys.stdout.fileno()
+    os.write(out, b"\x1b[?25l")
+    shown = None
+    while os.path.getmtime(ME) == code:
+        main = lay()["main"]
+        path = avatar_path(main["agent"] if main and main["role"] != "idle" else "")
+        w, h = shutil.get_terminal_size((AVATAR_W, 24))
+        key = (path, path and os.path.getmtime(path), w, h)
+        if key != shown:
+            shown = key
+            lines = (chafa_lines(path, w, 999, fine=True) or [])[:h] if path else None
+            os.write(out, ("\x1b[H\x1b[2J" + "".join("\x1b[%d;1H%s" % (i + 1, l)
+                     for i, l in enumerate(lines or []))).encode("utf-8", "replace"))
+        time.sleep(0.5)
+
+
+class ListUi(Ui):
+    def __init__(self, scr):
+        super().__init__(scr)
+        self.conf = load_conf_names()
+        self.log = Log(1)
+        self.items = entries()
+        self.agents = []
+        self.ps = []
+        self.rows = []
+        self.nvis = 1              # kolik person bezi = kolik radku seznam potrebuje
+        self.top_h = 1
+        self.bar = None            # text radku nebezicich v horni liste
+        self.n_run = -1            # kolik agentu bezi (@busy pro menu)
+        self.idle_rows = []        # nebezici pod bezicimi: [[(sloupec, text, cislo)]]
+        self.gpt_limits = []       # limity Codexu (GPT) pod limity claude
+        self.applied_for = None
+        self.flags = None
+        self.shape = None          # (sirka okna, vyska okna, co je otevrene)
+        self.sizes = None          # ({cislo panelu: sirka}, vyska seznamu)
+        self.code = self.code_stamp()
+        if self.pane:
+            popt(self.pane, "@role", "list")
+        tmux("source-file", TMUX_CONF)     # zmeny v nastaveni se projevi s novym seznamem
+        tmux("set-option", "-g", "set-titles-string", SOCK)   # podle titulku se pozna okno
+        self.buf = b""             # nedoctena sekvence ze vstupu
+        self.hover = None          # (radek, sloupec), kde je mys nad seznamem
+        self.hover_t = 0.0         # kdy se tam naposled pohnula
+        self.tip = -1              # radek, na kterem sviti stitek /exit
+        self.last_click = (0.0, -1)
+        self.winch = False
+        signal.signal(signal.SIGWINCH, lambda *a: setattr(self, "winch", True))
+        if not bind_keys(self.pane):
+            say("clmon: klávesy a myš se nepodařilo nastavit (%s)" % KEYS_CONF)
+
+    @staticmethod
+    def code_stamp():
+        try:
+            return (os.path.getmtime(ME),)
+        except OSError:
+            return None
+
+    def refresh_data(self):
+        # zmenil se kod na disku -> skoncit; smycka v panelu pusti seznam znovu s novym.
+        # Agentu dole se to netyka.
+        if self.code_stamp() != self.code:
+            raise SystemExit(0)
+        self.conf = load_conf_names()
+        self.items = entries()
+        self.agents = load_agents(self.conf)
+        self.log.update(self.agents, self.conf)
+        self.ps = panes()
+        self.rows = rows_state(self.items, self.ps, self.agents)
+        # Slozene ikony (1️⃣, 🅰️) pocita curses jinak siroke nez terminal a po prekresleni
+        # by za nimi zustavaly zbytky znaku. Jednou za obnovu proto prekreslit vse.
+        self.scr.redrawwin()
+        # hlaska v liste po par sekundach zmizi
+        if gopt("@msg"):
+            try:
+                old = time.time() - float(gopt("@msg_t")) > MSG_SECS
+            except ValueError:
+                old = True
+            if old:
+                gopt("@msg", "")
+                status_refresh()
+        # seznam ma radek pro kazdeho bezicího a pod nimi nebezici; vysku drzi podle nich,
+        # dokud ji uzivatel nezmeni sam
+        self.idle_rows = idle_layout(self.rows, self.scr.getmaxyx()[1])
+        # bezici · cara · nebezici · cara · limity · limity GPT (jen kdyz Codex nekdy bezel)
+        self.gpt_limits = codex_limits()
+        nvis = max(1, len(running(self.rows))) + 1 + len(self.idle_rows) + 1 + 1 \
+            + (1 if self.gpt_limits else 0)
+        if self.top_h == self.nvis:
+            self.top_h = nvis
+        self.nvis = nvis
+        # nebezici jsou jen jmenem na druhem radku menu nad seznamem
+        bar = idle_data(self.rows)
+        if bar != self.bar:
+            gopt("@idle", bar)
+            self.bar = bar
+        n_run = len(running(self.rows))
+        if n_run != self.n_run:
+            gopt("@busy", str(n_run) if n_run else "")   # menu: [close] jen kdyz nic nebezi
+            self.n_run = n_run
+        # Tlacitka jsou v menu nad seznamem, lista tmuxu neni potreba. Hlidat ji, protoze
+        # nacteni nastaveni (source-file) by ji vratilo.
+        if tmux("show-options", "-gv", "status")[1] != "off":
+            tmux("set-option", "-g", "status", "off")
+        L = lay(self.ps)
+        if L["list"] and not L["main"]:
+            # terminal agenta zmizel (agent skoncil a shell se zavrel) - dat tam prazdne misto
+            ensure_main(L)
+            self.ps = panes()
+            L = lay(self.ps)
+            self.applied_for = None
+        # tlacitka v liste musi sedet s tim, co je opravdu otevrene
+        flags = tuple((p["slot"], p["role"]) for p in L["panels"])
+        if flags != self.flags:
+            gopt("@panels", ",".join(str(p["slot"]) for p in L["panels"]))
+            gopt("@chat", next((str(p["slot"]) for p in L["panels"] if p["role"] == "chat"), ""))
+            self.flags = flags
+        lp = L["list"]
+        if not lp or lp["zoom"]:
+            self.shape = None
+            return
+        if ensure_tbars(L) | ensure_avatar(L):
+            self.ps = panes()
+            L = lay(self.ps)
+            lp = L["list"]
+            self.applied_for = None           # vysku seznamu srovnat znovu
+        # Tazeni vodorovne hrany mysi: zmenila se vyska seznamu, ale okno ani tlacitka ne -
+        # hranu pretahl uzivatel. Zapamatovat, at ji priste nic nevrati na vychozi hodnotu.
+        # Sirky sloupcu si pri tazeni hlida clamp() sam (vazba na MouseDrag1Border).
+        shape = (lp["ww"], lp["wh"], flags, gopt("@gen"))
+        sizes = self.sizes_of(L)
+        if shape == self.shape and self.sizes and sizes != self.sizes:
+            if L["main"] and sizes[1] != self.sizes[1]:
+                self.top_h = sizes[1]
+                self.applied_for = (lp["wh"], lp["ww"], self.top_h)
+        # vysku seznamu a sirky panelu drzet i po zmene velikosti okna (pojistka k hooku
+        # client-resized, kdyby se nespustil)
+        if L["main"] and self.applied_for != (lp["wh"], lp["ww"], self.top_h):
+            tmux("resize-pane", "-t", lp["id"], "-y", max(1, min(self.top_h, lp["wh"] - 6)))
+            if not busy():
+                fit()
+            self.applied_for = (lp["wh"], lp["ww"], self.top_h)
+            self.ps = panes()
+            sizes = self.sizes_of(lay(self.ps))       # az po srovnani, at se nebere za tazeni
+        # Tazeni hrany tmux obslouzi sam a skript pusti jen na zacatku a na konci - a ten
+        # na konci jen, kdyz mys pri pusteni stoji presne na hrane. Proto i tady: dokud
+        # se okno nemeni, zapamatovat sirky, jak jsou, a hlidat minimum.
+        if L["panels"] and not busy():
+            if getattr(self, "cols_ww", 0) == lp["ww"]:
+                clamp()
+            self.cols_ww = lp["ww"]
+        self.shape, self.sizes = shape, sizes
+
+    @staticmethod
+    def sizes_of(L):
+        widths = {p["slot"]: p["w"] for p in L["panels"]}
+        widths[0] = (L["menu"] or L["list"])["w"] if L["list"] else 0   # 0 = levy sloupec
+        return (widths, L["list"]["h"] if L["list"] else 0)
+
+    def draw(self):
+        scr = self.scr
+        scr.erase()
+        h, w = scr.getmaxyx()
+        now = time.time()
+        main = lay(self.ps)["main"]
+        active = main["agent"] if main else ""
+        vis = running(self.rows)
+        # Najeti mysi na kolecko bezicího agenta: na tom radku se cerne na zlutem ukaze, co
+        # klik udela. Stitek prekryva pulku ikony agenta, takze pri zmene prekreslit vse,
+        # jinak po nem v terminalu zustane zbytek znaku.
+        tip = -1
+        if self.hover and now - self.hover_t < TIP_SECS:
+            hy, hx = self.hover
+            if 0 <= hy < len(vis) and vis[hy][3] == "here" \
+                    and on_icon(vis[hy][0], hx, armed=(self.tip == hy)):
+                tip = hy
+        if tip != self.tip:
+            scr.clear()
+            self.tip = tip
+        namew = max([cwidth(r[1]) for r in vis] + [4]) + 2
+        if not vis:
+            self.put(0, 2, "žádný agent neběží - klik na jméno pod tímhle řádkem ho pustí",
+                     curses.A_DIM)
+        for i, (idx, label, path, st, sess) in enumerate(vis[:h]):
+            # zadny vyber ani zvyrazneny radek - jedina sipka ukazuje, kdo je dole
+            # aktivni (ten dole): sipka zluta bez podkresu, ikona se jmenem podkreslene jako tab
+            on = label == active
+            yellow = self.pal.get("tab", curses.A_REVERSE)
+            arrow = self.pal.get("ctx_warn", 0) | curses.A_BOLD
+            x = self.put(i, 0, "▶" if on else " ", arrow if on else 0)
+            x = self.put(i, x, " ", 0)
+            x = self.put(i, x, "%d " % (idx + 1), curses.A_DIM)
+            # bezi tady = zelena (● pracuje, ○ ceka) · bezi jinde = ⊗ · nebezi = tecka
+            if st == "jinde":
+                dot, dattr = "⊗ ", 0
+            elif sess:
+                dot, dattr = ("● " if sess["status"] == "busy" else "○ "), \
+                    self.pal.get("busy", curses.A_BOLD)
+            else:
+                dot, dattr = "· ", curses.A_DIM
+            x = self.put(i, x, dot, dattr)
+            # agent, ktery neni claude (`cmd:` v projects.conf, napr. Codex/GPT), ma jmeno zlute,
+            # agent na jinem PC (ssh) tmave oranzove
+            gpt = (self.pal.get("remote", 0) if is_remote(path) else
+                   self.pal.get("ctx_warn", 0) if conf_cmd(path) else 0)
+            self.put(i, x, label, yellow if on else (gpt | curses.A_BOLD) if st == "here" else
+                     (gpt | curses.A_DIM) if st == "off" else gpt)
+            x += namew
+            if sess:
+                sattr = (self.pal.get("st_wait", curses.A_REVERSE | curses.A_BLINK)
+                         if sess["status"] == "waiting" else
+                         self.pal.get("st_busy", curses.A_BOLD) if sess["status"] == "busy" else 0)
+                x = self.put(i, x, "%-4s" % sess["status"], sattr)
+                x = self.put(i, x, " %4s  " % ago(now - sess["since"]),
+                             curses.A_BOLD if sess["status"] == "busy" else 0)
+                ctx, model = (codex_usage(sess["transcript"]) if sess.get("codex")
+                              else self.log.usage.get(sess["transcript"], (0, "")))
+                x = self.put(i, x, "%-11s " % (model.replace("claude-", "") or "?"),
+                             self.pal.get("info", 0))
+                cattr = (self.pal.get("ctx_high", curses.A_BOLD) if ctx >= CTX_HIGH
+                         else self.pal.get("ctx_warn", curses.A_BOLD) if ctx >= CTX_WARN
+                         else self.pal.get("info", 0))
+                x = self.put(i, x, "%5s  " % (ktok(ctx) if ctx else "?"), cattr)
+            if st == "jinde":
+                self.put(i, x, "běží mimo clmon", curses.A_DIM)
+            if i == self.tip:
+                self.put(i, icon_col(idx), ARM_LABEL, self.pal.get("arm", curses.A_REVERSE))
+        # nebezici: klik na jmeno pusti
+        # tenka cara oddeluje bezici, nebezici a limity
+        sepw = max(1, self.scr.getmaxyx()[1] - 1)
+        top = max(1, len(vis))
+        self.put(top, 0, "┈" * sepw, curses.A_DIM)
+        top += 1
+        for r, row in enumerate(self.idle_rows):
+            for x, text, idx in row:
+                self.put(top + r, x, text, curses.A_DIM if idx is None else 0)
+        ly = top + len(self.idle_rows)
+        self.put(ly, 0, "┈" * sepw, curses.A_DIM)
+        ly += 1
+        # limity uctu (5h a tyden) pod vsemi, pod nimi limity GPT (Codex); barvy jako u kontextu
+        for head, parts in (("  limity: ", usage_parts() or [("?", None)]),
+                            ("  limity GPT: ", self.gpt_limits)):
+            if not parts:
+                continue
+            ux = self.put(ly, 0, head, curses.A_DIM)
+            for i, (text, pct) in enumerate(parts):
+                if i:
+                    ux = self.put(ly, ux, "  ·  ", curses.A_DIM)
+                attr = (self.pal.get("ctx_high", curses.A_BOLD) if pct is not None and pct >= 90
+                        else self.pal.get("ctx_warn", curses.A_BOLD) if pct is not None and pct >= 70
+                        else self.pal.get("info", 0))
+                ux = self.put(ly, ux, text, attr)
+            ly += 1
+        scr.refresh()
+
+    def act(self, err):
+        if err:
+            say(err)
+        self.ps = panes()
+
+    def step(self, d):
+        """Sipka posune ▶ na dalsiho agenta, ktery uz ma svuj panel. Nic se tim
+        nespousti a vstup zustava v seznamu."""
+        main = lay(self.ps)["main"]
+        active = main["agent"] if main else ""
+        ok = [i for i, (label, _) in enumerate(self.items) if pane_of(label, self.ps)]
+        if not ok:
+            return
+        cur = next((i for i, (label, _) in enumerate(self.items) if label == active), None)
+        pos = ok.index(cur) if cur in ok else (-1 if d > 0 else 0)
+        self.act(show(ok[(pos + d) % len(ok)], False))
+
+    def events(self, timeout):
+        """Vstup cte seznam sam, ne pres curses: [("key", jmeno)] a [("mouse", tlacitko, x, y,
+        stisk)]. Curses pri tazeni mysi ceka na zbytek udalosti a zamrzne; tohle neblokuje."""
+        try:
+            r, _, _ = select.select([0], [], [], timeout)
+        except (InterruptedError, OSError):
+            return []
+        if not r:
+            return []
+        data = self.buf + os.read(0, 4096)
+        self.buf = b""
+        out = []
+        while data:
+            m = RE_SGR.match(data)
+            if m:
+                out.append(("mouse", int(m.group(1)), int(m.group(2)) - 1, int(m.group(3)) - 1,
+                            m.group(4) == b"M"))
+                data = data[m.end():]
+            elif data.startswith(b"\x1b[<") and len(data) < 32:
+                self.buf = data            # neuplna udalost mysi - zbytek prijde priste
+                break
+            elif next((k for k in KEYSEQ if data.startswith(k)), None):
+                k = next(k for k in KEYSEQ if data.startswith(k))
+                out.append(("key", KEYSEQ[k]))
+                data = data[len(k):]
+            elif data[:1] == b"\x1b":
+                j = 1                      # jina sekvence - zahodit celou
+                if data[1:2] in (b"[", b"O"):
+                    j = 2
+                    while j < len(data) and not 0x40 <= data[j] <= 0x7e:
+                        j += 1
+                    j += 1
+                data = data[j:]
+            else:
+                out.append(("key", data[:1].decode("latin-1")))
+                data = data[1:]
+        return out
+
+    def on_mouse(self, b, x, y, pressed):
+        vis = running(self.rows)
+        if b & 64:
+            return                                     # kolecko mysi v seznamu nic nedela
+        if b & 32:                                     # pohyb
+            self.hover = (y, x) if 0 <= y < len(vis) else None
+            self.hover_t = time.time()
+            return
+        if pressed and b & 3 == 0 and y >= max(1, len(vis)):
+            # nebezici pod bezicimi: klik na jmeno pusti; druhy klik dvojkliku nic nedela
+            r = y - max(1, len(vis)) - 1                   # pod carou
+            if 0 <= r < len(self.idle_rows) and time.time() - self.last_click[0] >= 0.4:
+                for cx, text, idx in self.idle_rows[r]:
+                    if idx is not None and cx <= x < cx + cwidth(text):
+                        self.last_click = (time.time(), -1)
+                        self.act(show(idx, True, start=True))
+                        break
+            return
+        if not pressed or b & 3 != 0 or not 0 <= y < len(vis):
+            return                                     # jen stisk leveho tlacitka na radku
+        idx, label, path, st, sess = vis[y]
+        now = time.time()
+        double = now - self.last_click[0] < 0.4 and self.last_click[1] == y
+        self.last_click = (now, y)
+        if on_icon(idx, x, armed=(self.tip == y and now - self.hover_t < TIP_SECS)):
+            self.hover = None
+            if not double:
+                self.act(deactivate(idx))              # klik na kolecko nebo stitek = /exit
+        elif double:
+            self.act(dblclick(idx))
+        else:
+            self.act(show(idx, True, start=False))
+
+    def run(self):
+        out = sys.stdout.fileno()
+        os.write(out, b"\x1b[?1003h\x1b[?1006h")       # hlasit i pohyb mysi, v citelnem tvaru
+        try:
+            self.loop()
+        finally:
+            os.write(out, b"\x1b[?1003l\x1b[?1006l")
+
+    def loop(self):
+        last = 0
+        while True:
+            if self.winch:
+                self.winch = False
+                sz = os.get_terminal_size()
+                curses.resizeterm(sz.lines, sz.columns)
+                last = 0
+            if time.time() - last >= 2:
+                self.refresh_data()
+                last = time.time()
+            self.draw()
+            for ev in self.events(1.0):
+                if ev[0] == "mouse":
+                    self.on_mouse(*ev[1:])
+                    continue
+                k = ev[1]
+                if k in ("q", "Q"):
+                    tmux("detach-client")
+                elif k in ("up", "k"):
+                    self.step(-1)
+                elif k in ("down", "j"):
+                    self.step(1)
+                elif k in ("\r", "\n", "right"):
+                    focus("agent")
+                elif k.isdigit():
+                    self.act(number(int(k)))
+                elif k == "p":
+                    self.act(toggle("pnext"))
+                elif k in ("+", "="):
+                    self.top_h += 1
+                    self.shape = None
+                    last = 0
+                elif k == "-":
+                    self.top_h = max(1, self.top_h - 1)
+                    self.shape = None
+                    last = 0
+                elif k in ("z", "Z"):
+                    zoom()
+                else:
+                    last = 0          # r a cokoli dalsiho = obnovit hned
+
+
+# ---- pN: prohlizec ---------------------------------------------------------------------------
+# Umi text s cisly radku, markdown vykresleny pres rich, obrazky pres chafa (i vlozene
+# v md) a HTML prevedene pandocem na markdown. Nekresli pres curses: obsah je hotovy
+# barevny text pro terminal a panel v nem jen listuje.
+IMG_EXT = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".tif", ".tiff", ".ico")
+MD_EXT = (".md", ".markdown")
+HTML_EXT = (".html", ".htm")
+IMG_TALL = 2000      # strop vysky obrazku v radcich - prakticky zadny, ridi se sirkou
+DIM, BOLD, RST = "\x1b[2m", "\x1b[1m", "\x1b[0m"
+C_KEY, C_HEAD, C_CODE = "\x1b[36m", "\x1b[1;35m", "\x1b[32m"
+C_GIT, C_DIR = "\x1b[38;5;244m", "\x1b[1;34m"      # ● v gitu; adresar ve stromu repa
+REV = "\x1b[48;5;238m"                              # rozbalene repo v seznamu rep
+REPOS = "repos:"                                    # "soubor" pro prohlizec: vsechna repa pod tree z config.t2l
+ESENCE = "esence:"                                  # esence:<cesta> - jedna polozka TIMEAXIS v jednom okne
+TA_STEP = 25                                        # polozek na [more]; radku textu v esenci
+TA_MORE = 50                                        # radku textu navic na [more] v esenci
+C_BTN = "\x1b[1;33m"                                # [more] [less]
+C_URL = "\x1b[4;38;5;39m"                           # externi odkaz (URL): modre, podtrzene
+C_LINK = "\x1b[4m"                                  # odkaz na soubor: podtrzene, pred nim ▶▶▶
+C_HOVER = "\x1b[48;5;97m\x1b[97m"                        # odkaz pod mysi: fialove
+LINK_MARK = "▶▶▶ "                                  # interni odkaz a externi dokument
+RE_URL = re.compile(r"https?://[^\s)\]>\"']+")
+RE_HTML = re.compile(r"(?<![\w/:.-])((?:\.{1,2}/)?[\w./-]*\w\.html?)\b")
+
+
+def link_row(pre, label, post, kind, hover):
+    """Radek s odkazem: URL modre, soubor s ▶▶▶ pred jmenem; pod mysi fialove."""
+    mark = "" if kind == "url" else LINK_MARK
+    color = C_HOVER if hover else (C_URL if kind == "url" else C_LINK)
+    return pre + color + mark + label + RST + post
+
+
+def virtual(path):
+    """Prohlizec umi i "soubory", ktere nejsou na disku: repos:, esence:<cesta>."""
+    return path == REPOS or (path or "").startswith(ESENCE)
+
+
+RE_IMG_MD = re.compile(r'^\s*!\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)\s*$')
+RE_IMG_HTML = re.compile(r'^\s*<img\b[^>]*\bsrc\s*=\s*["\']([^"\']+)["\'][^>]*>\s*$', re.I)
+RE_ALT = re.compile(r'\balt\s*=\s*["\']([^"\']*)["\']', re.I)
+
+
+def wrap_cells(s, width):
+    """Rozdelit radek na kusy siroke nejvys `width` bunek terminalu."""
+    if width < 4:
+        width = 4
+    out, cur, w = [], "", 0
+    for ch in s:
+        cw = cwidth(cur + ch) - w
+        if w + cw > width and cur:
+            out.append(cur)
+            cur, w = "", 0
+            cw = cwidth(ch)
+        cur += ch
+        w += cw
+    out.append(cur)
+    return out
+
+
+def chafa_lines(path, width, height, fine=False):
+    """Obrazek jako radky barevnych znaku. None, kdyz to nejde. fine = jemneji a pomaleji:
+    sextanty (2x3 body v bunce), nejvyssi kvalita, barvy v DIN99d - pro avatara."""
+    if not shutil.which("chafa"):
+        return None
+    extra = ["--symbols", "block+border+sextant+wedge+quad+half", "--work", "9",
+             "--color-space", "din99d", "--dither", "none"] if fine else []
+    try:
+        r = subprocess.run(["chafa", "--format", "symbols", "--colors", "full", "--polite", "on",
+                            "--animate", "off", "--size", "%dx%d" % (max(8, width), max(4, height))]
+                           + extra + [path], capture_output=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    out = r.stdout.decode("utf-8", "replace").rstrip("\n")
+    return [l + RST for l in out.split("\n")] if out else None
+
+
+def image_block(src, base, alt, width, height):
+    """Radky pro jeden obrazek: vykresleny obrazek a pod nim popisek."""
+    if re.match(r"^[a-z][a-z0-9+.-]*:", src, re.I) and not src.startswith("file:"):
+        return [DIM + "[obrázek z webu, nestahuje se: %s]" % src + RST]
+    path = src[7:] if src.startswith("file://") else src
+    if not os.path.isabs(path):
+        path = os.path.join(base, path)
+    if not os.path.isfile(path):
+        return [DIM + "[obrázek nenalezen: %s]" % src + RST]
+    lines = chafa_lines(path, width, height)
+    if lines is None:
+        return [DIM + "[obrázek nejde vykreslit: %s]" % src + RST]
+    cap = alt or os.path.basename(path)
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            cap += "  %dx%d" % im.size
+    except Exception:
+        pass
+    return lines + [DIM + cap + RST]
+
+
+def md_lines(text, base, width, height, imgw=None):
+    """Markdown na radky pro terminal: text pres rich, obrazky na samostatnem radku pres chafa.
+    imgw = sirka obrazku ve sloupcich; vysku urci pomer stran, na vysku se listuje."""
+    try:
+        import io
+        from rich.console import Console
+        from rich.markdown import Markdown
+    except ImportError:
+        return None
+
+    def rich_part(src):
+        if not src.strip():
+            return []
+        buf = io.StringIO()
+        con = Console(file=buf, width=max(20, width), force_terminal=True,
+                      color_system="truecolor", legacy_windows=False, highlight=False)
+        con.print(Markdown(src, hyperlinks=False))
+        return buf.getvalue().rstrip("\n").split("\n")
+
+    out, chunk, fence = [], [], False
+    for line in text.split("\n"):
+        s = line.lstrip()
+        if s.startswith("```") or s.startswith("~~~"):
+            fence = not fence
+        m = None if fence else RE_IMG_MD.match(line)
+        h = None if fence or m else RE_IMG_HTML.match(line)
+        if not m and not h:
+            chunk.append(line)
+            continue
+        out += rich_part("\n".join(chunk))
+        chunk = []
+        if m:
+            alt, src = m.group(1), m.group(2)
+        else:
+            a = RE_ALT.search(line)
+            alt, src = (a.group(1) if a else ""), h.group(1)
+        if out:
+            out.append("")
+        out += image_block(src, base, alt, imgw or width, IMG_TALL)
+        out.append("")
+    out += rich_part("\n".join(chunk))
+    return out
+
+
+def html_to_md(path):
+    """HTML na markdown pres pandoc (obrazky zustanou jako ![..](..)). None, kdyz to nejde."""
+    if not shutil.which("pandoc"):
+        return None
+    try:
+        r = subprocess.run(["pandoc", "-f", "html", "-t", "gfm-raw_html", "--wrap=none", path],
+                           capture_output=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout.decode("utf-8", "replace") if r.returncode == 0 else None
+
+
+class View:
+    MAX = 2000000      # vic se z jednoho souboru necte
+
+    def __init__(self, path, line=0):
+        self.path = path if virtual(path) else os.path.abspath(path) if path else ""
+        self.pane = os.environ.get("TMUX_PANE", "")
+        self.rows = []
+        self.top = 0
+        self.mtime = None
+        self.size = (0, 0)
+        # s = prepnout vykresleny obsah / zdroj s cisly radku. Kdyz se ma ukazat
+        # konkretni radek, otevira se zdroj - cislo radku plati pro nej.
+        self.source = line > 0
+        self.goto = line
+        # Obrazek v textu je nejdriv maly, tretina sirky panelu, jen pro orientaci.
+        # w ho roztahne na celou sirku a zpatky.
+        self.wide = False
+        self.resized = True
+        self.goto_row = None
+        self.jump = line > 0
+        self.fd = sys.stdin.fileno()
+        self.repos = None           # seznam rep (repos:), nacita se jednou; r = znovu
+        self.row_repo = []          # radek -> repo
+        self.open_repo = ""         # rozbalene repo
+        self.ess_lines = {}         # esence: soubor -> kolik radku textu je videt
+        self.ess_big = set()        # esence: obrazky zvetsene pres [more]
+        self.row_act = []           # radek -> akce kliku (esence:)
+        if self.pane:
+            popt(self.pane, "@role", "view")
+            popt(self.pane, "@file", self.path)
+
+    def slot(self):
+        """Cislo panelu pN, ve kterem prohlizec bezi (0 = nevi)."""
+        if not self.pane:
+            return 0
+        v = tmux("show-options", "-pqv", "-t", self.pane, "@slot")[1]
+        return int(v) if v.isdigit() else 0
+
+    # -- obsah --
+    def kind(self):
+        ext = os.path.splitext(self.path)[1].lower()
+        if ext in IMG_EXT:
+            return "img"
+        if ext in MD_EXT:
+            return "md"
+        if ext in HTML_EXT:
+            return "html"
+        return "text"
+
+    def stamp(self):
+        if virtual(self.path):
+            return None
+        try:
+            return os.path.getmtime(self.path)
+        except OSError:
+            return None
+
+    def read_text(self):
+        """(radky, poznamka) - poznamka je duvod, proc text neni nebo neni cely."""
+        try:
+            size = os.path.getsize(self.path)
+            with open(self.path, "rb") as f:
+                data = f.read(self.MAX)
+        except OSError as e:
+            return None, "Nejde číst: %s" % e.strerror
+        if b"\0" in data[:8192]:
+            return None, "Binární soubor, %s. Text v něm není." % fsize(self.path)
+        text = data.decode("utf-8", "replace").replace("\r\n", "\n")
+        note = ""
+        if size > self.MAX:
+            note = "… zobrazeny první %d MB z %s" % (self.MAX // 1000000, fsize(self.path))
+        return text, note
+
+    def repo_rows(self, w):
+        """Adresar v git repu jako strom, slozky napred (cesta k .git = cele repo).
+        ● = v gitu, prazdno = neni; co git ignoruje, chybi. (radky, pocet v gitu, pocet mimo);
+        None, kdyz adresar neni v repu."""
+        root = self.repo_dir()
+
+        def ls(*opt):
+            r = subprocess.run(["git", "-C", root, "ls-files", "-z"] + list(opt),
+                               capture_output=True, timeout=10)
+            if r.returncode:
+                raise OSError(0, "není v git repu")
+            return [f for f in r.stdout.decode("utf-8", "replace").split("\0") if f]
+        tracked = set(ls())
+        tree = {}
+        for f in tracked | set(ls("-o", "--exclude-standard")):
+            node = tree
+            for part in f.split("/")[:-1]:
+                node = node.setdefault(part + "/", {})
+            node[f.rsplit("/", 1)[-1]] = f
+        rows = []
+
+        def has_git(node):
+            return any(has_git(v) if isinstance(v, dict) else v in tracked for v in node.values())
+
+        def walk(node, depth):
+            keys = sorted(node, key=lambda k: (not isinstance(node[k], dict), k.lower()))
+            for k in keys:
+                v = node[k]
+                sub = isinstance(v, dict)
+                dot = (C_GIT + "● " + RST) if (has_git(v) if sub else v in tracked) else "  "
+                t = (wrap_cells(k, max(4, w - 4 - 2 * depth)) or [""])[0]   # dlouhe jmeno oriznout
+                name = (C_DIR + t + RST) if sub else (DIM + t + RST if k.startswith(".") else t)
+                rows.append(" " + dot + "  " * depth + name)
+                if sub:
+                    walk(v, depth + 1)
+        walk(tree, 0)
+        n = len(tracked)
+        return rows, n, sum(1 for _ in self._files(tree)) - n
+
+    def repos_rows(self, w):
+        """Vsechna repa (adresare s .git) pod tree z config.t2l: ikona jako v CPPBROWSE
+        (🈴 remark cpp, 🅰️ remark app v <repo>/<repo>.t2l, jinak 🟥), jmeno, slabe cesta.
+        Pod rozbalenym repem jeho popis (record description, radky co:). Klik = rozbalit
+        (jine se zavre), klik na rozbalene = otevrit v CPPBROWSE v p1."""
+        if self.repos is None:
+            kadlub = config.tree()
+            r = subprocess.run(["find", kadlub, "-name", "node_modules", "-prune", "-o", "-name", ".venv",
+                                "-prune", "-o", "-name", ".git", "-print", "-prune"],
+                               capture_output=True, timeout=20)
+            self.repos = sorted((os.path.dirname(g) for g in
+                                 r.stdout.decode("utf-8", "replace").split("\n") if g), key=str.lower)
+        rows, self.row_repo = [], []
+        for d in self.repos:
+            kind, desc = "", []
+            try:
+                with open(os.path.join(d, os.path.basename(d) + ".t2l"), encoding="utf-8") as f:
+                    typ = ""
+                    for line in f:
+                        k, _, v = line.strip().partition(":")
+                        k, v = k.strip(), v.strip()
+                        if not line.strip():
+                            typ = ""
+                        elif k == "type":
+                            typ = v
+                        elif typ == "remark" and k == "value" and v in ("cpp", "app"):
+                            kind = v
+                        elif typ == "description" and k == "co":
+                            desc.append(v)
+            except OSError:
+                pass
+            icon = {"cpp": "🈴", "app": "🅰️"}.get(kind, "🟥")
+            name = os.path.basename(d) + "/"
+            pad = " " * max(2, 22 - len(name))
+            on = d == self.open_repo
+            rows.append((REV if on else "") + " " + icon + " " + C_DIR + name + RST
+                        + (REV if on else "") + pad + DIM + short(d) + ("\x1b[K" if on else "") + RST)
+            self.row_repo.append(d)
+            if on:
+                for t in desc or ["(popis chybí - record type: description, co: ... v %s.t2l)"
+                                  % os.path.basename(d)]:
+                    for part in wrap_cells(t, w - 6):
+                        rows.append("     " + part)
+                        self.row_repo.append(d)
+                rows.append(DIM + "     klik znovu = otevřít v CPPBROWSE" + RST)
+                self.row_repo.append(d)
+        return rows
+
+    def esence_rows(self, w, h):
+        """Esence polozky TIMEAXIS v jednom okne: soubor sam, adresar = jeho texty a obrazky
+        za sebou. Text prvnich TA_STEP radku, [more] dalsich TA_MORE, [less] zpet;
+        obrazek maly, [more] zvetseny, [less] zpet."""
+        root = self.path[len(ESENCE):]
+        if os.path.isdir(root):
+            try:
+                names = sorted(os.listdir(root), key=str.lower)
+            except OSError as e:
+                return [DIM + str(e) + RST]
+            files = [os.path.join(root, n) for n in names
+                     if not n.startswith(".") and os.path.isfile(os.path.join(root, n))]
+        else:
+            files = [root]
+        rows, self.row_act, self.links = [], [], {}
+        self.hover = None
+
+        def add(row, act=None):
+            rows.append(row)
+            self.row_act.append(act)
+
+        def add_link(pre, label, post, act):
+            """Radek s odkazem: ▶▶▶ pred souborem, modre URL; pod mysi fialove."""
+            self.links[len(rows)] = (pre, label, post, act[0])
+            add(link_row(pre, label, post, act[0], False), act)
+
+        def add_text(part, base):
+            """Radek textu; prvni URL nebo relativni html v nem je odkaz."""
+            m = RE_URL.search(part)
+            if m:
+                return add_link(part[:m.start()], m.group(0), part[m.end():], ("url", m.group(0)))
+            for m in RE_HTML.finditer(part):
+                target = os.path.normpath(os.path.join(base, m.group(1)))
+                if os.path.isfile(target):
+                    return add_link(part[:m.start()], m.group(1), part[m.end():], ("html", target))
+            add(part)
+        for k, f in enumerate(files):
+            ext = os.path.splitext(f)[1].lower()
+            if k:
+                add(DIM + "─" * max(1, w - 1) + RST)          # mezi soubory cara
+            try:
+                with open(f, "rb") as fh:
+                    data = fh.read(self.MAX)
+                text = None if ext in IMG_EXT else data.decode("utf-8")
+            except (OSError, UnicodeDecodeError):
+                # binarka (externi dokument): jen jmeno jako odkaz; klik = otevrit externe
+                add_link(" ", os.path.basename(f), "", ("ext", f))
+                continue
+            if len(files) > 1:
+                add_link("", os.path.basename(f), "", ("int", f))      # jmeno = interni odkaz
+            if ext in IMG_EXT:
+                big = f in self.ess_big
+                for r in image_block(f, root, "", (w - 1) if big else max(12, (w - 1) // 3),
+                                     IMG_TALL if big else max(4, h // 3)):
+                    add(r)
+                add(" " + C_BTN + ("[less]" if big else "[more]") + RST, ("img", f))
+            else:
+                lines = text.splitlines()
+                n = self.ess_lines.get(f, TA_STEP)
+                for ln in lines[:n]:
+                    for part in wrap_cells(ln.expandtabs(4), w - 1) or [""]:
+                        add_text(part, os.path.dirname(f))
+                btn = []
+                if n < len(lines):
+                    btn.append(C_BTN + "[more]" + RST)
+                if n > TA_STEP:
+                    btn.append(C_BTN + "[less]" + RST)
+                if btn:
+                    add(" " + "  ".join(btn) + DIM + "  %d z %d řádků" % (min(n, len(lines)), len(lines))
+                        + RST, ("txt", f))
+        return rows
+
+    def hover_at(self, y):
+        """Mys nad radkem y obrazovky: odkaz na nem fialove, predchozi zpet."""
+        i = self.top + y
+        old = getattr(self, "hover", None)
+        if i == old:
+            return
+        self.hover = i
+        for j, on in ((old, False), (i, True)):
+            if j is not None and j in getattr(self, "links", {}) and j < len(self.rows):
+                pre, label, post, kind = self.links[j]
+                self.rows[j] = link_row(pre, label, post, kind, on)
+
+    def click(self, y, x=0):
+        """Klik na radek y obrazovky (0 = nahore): seznam rep, esence:."""
+        i = self.top + y
+        if self.path.startswith(ESENCE):
+            act = self.row_act[i] if i < len(self.row_act) else None
+            if not act:
+                return
+            what, arg = act
+            if what == "img":
+                self.ess_big ^= {arg}
+            elif what in ("ext", "url", "html"):
+                subprocess.Popen(["xdg-open", arg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                 start_new_session=True)
+                return
+            elif what == "int":
+                open_right(self.pane, arg)              # soubor do panelu vpravo
+                return
+            elif what == "txt":
+                # [more] [less] na jednom radku: less je vpravo od more, kdyz jsou oba
+                n = self.ess_lines.get(arg, TA_STEP)
+                row = self.rows[i]
+                less = "[less]" in row and ("[more]" not in row or x > 9)
+                self.ess_lines[arg] = TA_STEP if less else n + TA_MORE
+            self.resized = True
+            return
+        if self.path != REPOS or i >= len(self.row_repo):
+            return
+        d = self.row_repo[i]
+        if d == self.open_repo:
+            show_dir({"file": d})                 # p1: CPPBROWSE vleze do repa
+        else:
+            self.open_repo = d
+            self.resized = True
+
+    def repo_dir(self):
+        return os.path.dirname(self.path) if os.path.basename(self.path) == ".git" else self.path
+
+    def _files(self, node):
+        for v in node.values():
+            if isinstance(v, dict):
+                yield from self._files(v)
+            else:
+                yield v
+
+    def text_rows(self, text, w):
+        """Zdroj s cisly fyzickych radku; md a t2l lehce obarvene."""
+        lines = [l.expandtabs(4) for l in text.split("\n")]
+        if len(lines) > 1 and lines[-1] == "":
+            lines.pop()
+        ext = os.path.splitext(self.path)[1].lower()
+        gut = len(str(max(1, len(lines)))) + 1
+        rows, fence = [], False
+        for i, line in enumerate(lines):
+            s = line.lstrip()
+            color = ""
+            if ext in MD_EXT:
+                if s.startswith("```") or s.startswith("~~~"):
+                    fence, color = not fence, DIM
+                elif fence:
+                    color = C_CODE
+                elif s.startswith("#"):
+                    color = C_HEAD
+                elif s.startswith(">"):
+                    color = DIM
+            elif ext == ".t2l":
+                if s.startswith("#"):
+                    color = DIM
+                elif s.startswith("type:"):
+                    color = C_HEAD
+            if i + 1 == self.goto:
+                self.goto_row = len(rows)
+            mark = "\x1b[1;33m" if i + 1 == self.goto else DIM          # ukazany radek vyrazne
+            for j, part in enumerate(wrap_cells(line, w - gut - 2)):
+                num = (mark + str(i + 1).rjust(gut - 1) + RST) if j == 0 else " " * (gut - 1)
+                c = part.find(":")
+                if ext == ".t2l" and not color and j == 0 and c > 0:
+                    body = C_KEY + part[:c + 1] + RST + part[c + 1:]      # klic: hodnota
+                else:
+                    body = color + part + RST
+                rows.append(num + "  " + body)
+        return rows, len(lines)
+
+    def render(self, w, h):
+        self.mtime = self.stamp()
+        name = short(self.path) if self.path else "prázdný panel"
+        note, rows, info = "", [], ""
+        if not self.path:
+            note = "Prázdný panel. Soubor sem dá clmon --tp%d SOUBOR." % (self.slot() or 1)
+        elif self.path.startswith(ESENCE):
+            name = short(self.path[len(ESENCE):])
+            rows = self.esence_rows(w, h)
+            info = "esence · [more] / [less]"
+        elif self.path == REPOS:
+            name = short_path(config.tree())
+            try:
+                rows = self.repos_rows(w)
+                info = "%d rep · 🈴 C++  🅰️ appky  🟥 ostatní · klik = popis, znovu = CPPBROWSE · r = znovu" \
+                    % len(self.repos)
+            except (OSError, subprocess.SubprocessError) as e:
+                note = "find nejde: %s" % e
+        elif os.path.isdir(self.path):
+            # adresar: v git repu strom (git list), jinak nic
+            name = short(self.repo_dir())
+            try:
+                rows, n, other = self.repo_rows(w)
+                info = "git list · ● v gitu %d · mimo git %d · r = znovu" % (n, other)
+            except (OSError, subprocess.SubprocessError):
+                note = "To je adresář."
+        elif not os.path.exists(self.path):
+            note = "Soubor není: %s" % name
+        else:
+            kind = self.kind()
+            imgw = (w - 1) if self.wide else max(12, (w - 1) // 3)
+            hint = "w = malé obrázky" if self.wide else "w = obrázky na celou šířku"
+            if kind == "img":
+                # samotny obrazek: nejdriv cely do panelu, w = na celou sirku s listovanim
+                rows = image_block(self.path, os.path.dirname(self.path), "", w - 1,
+                                   IMG_TALL if self.wide else h - 2)
+                info = "obrázek · " + ("w = vejít do panelu" if self.wide else "w = celá šířka")
+            else:
+                text, note = self.read_text()
+                if text is not None:
+                    done = None
+                    if not self.source and kind == "md":
+                        done = md_lines(text, os.path.dirname(self.path), w - 1, h, imgw)
+                        info = "md · s = zdroj · e = editor · " + hint
+                    elif not self.source and kind == "html":
+                        md = html_to_md(self.path)
+                        if md is not None:
+                            done = md_lines(md, os.path.dirname(self.path), w - 1, h, imgw)
+                        info = "html jako text · s = zdroj · " + hint
+                    if done is not None:
+                        rows = done
+                    else:
+                        rows, n = self.text_rows(text, w)
+                        info = "%d řádků" % n + (" · s = vykreslit" if kind in ("md", "html") else "") \
+                            + " · e = editor"
+        if note:
+            rows = rows + ([""] if rows else []) + [DIM + note + RST]
+        self.rows = rows
+        self.size = (w, h)
+        if self.pane:
+            popt(self.pane, "@title", name + (" · " + info if info else ""))
+
+    def top_line(self):
+        """Cislo radku zdroje, ktery je prave nahore (ve zdrojovem zobrazeni)."""
+        for row in self.rows[self.top:self.top + 40]:
+            m = re.match(r"(?:\x1b\[[0-9;]*m)*\s*(\d+)", row)
+            if m:
+                return int(m.group(1))
+        return 0
+
+    # -- terminal --
+    def draw(self):
+        w, h = shutil.get_terminal_size((80, 24))
+        if self.resized or (w, h) != self.size:
+            self.resized = False
+            self.goto_row = None
+            self.render(w, h)
+            if self.goto_row is not None and self.jump:
+                self.top = max(0, self.goto_row - h // 3)      # ukazany radek do horni tretiny
+                self.jump = False
+        self.top = max(0, min(self.top, len(self.rows) - h))
+        out = ["\x1b[H"]
+        for y in range(h):
+            i = self.top + y
+            out.append("\x1b[%d;1H%s%s\x1b[K" % (y + 1, self.rows[i] if i < len(self.rows) else "", RST))
+        os.write(sys.stdout.fileno(), "".join(out).encode("utf-8", "replace"))
+        return h
+
+    def key(self, timeout):
+        """Jedna klavesa jako text: 'up', 'down', 'pgup', 'pgdn', 'home', 'end' nebo znak."""
+        try:
+            r, _, _ = select.select([self.fd], [], [], timeout)
+        except (InterruptedError, OSError):
+            return None
+        if not r:
+            return None
+        data = os.read(self.fd, 64)
+        if not data:
+            raise SystemExit(0)
+        names = {b"\x1b[A": "up", b"\x1bOA": "up", b"\x1b[B": "down", b"\x1bOB": "down",
+                 b"\x1b[5~": "pgup", b"\x1b[6~": "pgdn", b"\x1b[H": "home", b"\x1b[1~": "home",
+                 b"\x1bOH": "home", b"\x1b[F": "end", b"\x1b[4~": "end", b"\x1bOF": "end"}
+        keys = []
+        while data:
+            m = re.match(rb"\x1b\[<(\d+);(\d+);(\d+)([Mm])", data)
+            if m:
+                b = int(m.group(1))
+                if b == 64:
+                    keys.append("up")
+                elif b == 65:
+                    keys.append("down")
+                elif b == 0 and m.group(4) == b"M":
+                    keys.append(("click", int(m.group(3)) - 1, int(m.group(2)) - 1))   # stisk leveho: radek, sloupec od 0
+                elif b & 32 and m.group(4) == b"M":
+                    keys.append(("move", int(m.group(3)) - 1, int(m.group(2)) - 1))    # pohyb mysi (hover)
+                data = data[m.end():]
+                continue
+            hit = next((k for k in names if data.startswith(k)), None)
+            if hit:
+                keys.append(names[hit])
+                data = data[len(hit):]
+            elif data[:1] == b"\x1b":
+                data = data[1:]
+                while data and not (64 <= data[0] <= 126 and data[:1] != b"["):
+                    data = data[1:]        # neznama sekvence - zahodit az po koncovy znak
+                data = data[1:]
+            else:
+                keys.append(data[:1].decode("latin-1"))
+                data = data[1:]
+        return keys
+
+    def run(self):
+        import termios
+        import tty
+        old = termios.tcgetattr(self.fd)
+        signal.signal(signal.SIGWINCH, lambda *a: setattr(self, "resized", True))
+        out = sys.stdout.fileno()
+        os.write(out, b"\x1b[?1049h\x1b[?25l")          # vlastni obrazovka, bez kurzoru
+        mouse = virtual(self.path)                         # mys jen v seznamech a esenci; jinde jde text oznacit
+        if mouse:
+            # v esenci i pohyb mysi (1003): odkaz pod mysi se obarvi
+            os.write(out, b"\x1b[?1000h\x1b[?1006h" + (b"\x1b[?1003h" if self.path.startswith(ESENCE) else b""))
+        try:
+            tty.setcbreak(self.fd)
+            while True:
+                h = self.draw()
+                for k in self.key(1.0) or []:
+                    if isinstance(k, tuple) and k[0] == "move":
+                        self.hover_at(k[1])
+                    elif isinstance(k, tuple):
+                        self.click(k[1], k[2] if len(k) > 2 else 0)
+                    elif k in ("q", "Q") and self.slot():
+                        Ui.close("x%d" % self.slot())
+                    elif k in ("up", "k"):
+                        self.top -= 1
+                    elif k in ("down", "j"):
+                        self.top += 1
+                    elif k in ("pgup", "b"):
+                        self.top -= max(1, h - 1)
+                    elif k in ("pgdn", " "):
+                        self.top += max(1, h - 1)
+                    elif k in ("home", "g"):
+                        self.top = 0
+                    elif k in ("end", "G"):
+                        self.top = len(self.rows)
+                    elif k in ("s", "S"):
+                        self.source = not self.source
+                        self.top = 0
+                        self.resized = True
+                    elif k in ("e", "E") and self.path and not virtual(self.path) and self.kind() != "img":
+                        # editor na radku, ktery je prave nahore; spousti ho tmux zvenci
+                        line = self.top_line() if self.source or self.kind() == "text" else 0
+                        tmux("run-shell", "-b", "%s --tp%d %s --edit --line %d"
+                             % (shlex.quote(ME), self.slot() or 1, shlex.quote(self.path), line))
+                    elif k in ("w", "W"):
+                        self.wide = not self.wide
+                        self.resized = True
+                    elif k in ("r", "R"):
+                        self.repos = None
+                        self.resized = True
+        finally:
+            termios.tcsetattr(self.fd, termios.TCSADRAIN, old)
+            if mouse:
+                os.write(out, b"\x1b[?1003l\x1b[?1006l\x1b[?1000l")
+            os.write(out, b"\x1b[?25h\x1b[?1049l")
+
+
+# ---- akce volane z klaves tmuxu --------------------------------------------------------------
+def zoom():
+    main = lay()["main"]
+    if main:
+        tmux("select-pane", "-t", main["id"])
+        tmux("resize-pane", "-Z", "-t", main["id"])
+
+
+def focus(which):
+    L = lay()
+    p = L["list"] if which == "list" else L["main"]
+    if p:
+        if which != "list":
+            wake(p["id"])
+        tmux("select-pane", "-t", p["id"])
+
+
+def idle():
+    print("\n  Dole není žádný agent.\n")
+    print("  V seznamu nahoře: klik přepne na běžícího agenta,")
+    print("  dvojklik nebo jeho číslo pustí toho, který neběží.\n")
+    print("  Menu nad seznamem: [pN] otevře další panel, [x] v jeho liště ho zavře.")
+    print("  Pindání je v liště nad panelem.")
+    while True:
+        time.sleep(3600)
+
+
+def start():
+    if shutil.which("tmux") is None:
+        sys.exit("clmon: chybí tmux (sudo apt install tmux)")
+    if os.environ.get("TMUX"):
+        sys.exit("clmon: už jsi uvnitř tmuxu - pusť clmon v obyčejném terminálu")
+    if not server_up():
+        cols, rows = shutil.get_terminal_size((200, 50))
+        # seznam se po padu pusti znovu; q ho neukoncuje, jen odpoji klienta
+        loop = "while :; do %s --list; sleep 1; done" % shlex.quote(ME)
+        rc, _ = tmux("-f", TMUX_CONF, "new-session", "-d", "-s", "ui", "-n", "clmon4",
+                     "-x", cols, "-y", rows, "-c", HOME, loop)
+        if rc != 0:
+            sys.exit("clmon: tmux se nepodařilo spustit")
+    # okno terminalu, ve kterem clmon4 bezi - pres nej se pridava a ubira sirka
+    gopt("@winid", os.environ.get("CLMON4_WINID") or active_window())
+    os.execvp("tmux", ["tmux", "-L", SOCK, "attach-session", "-t", "ui"])
+
+
+def kill():
+    if not server_up():
+        print("clmon neběží")
+        return
+    for p in panes():
+        if p["agent"] and p["role"] != "idle":
+            print("ukončuji:", p["agent"])
+    tmux("kill-server")
+
+
+def arg_after(args, flag, default=None):
+    i = args.index(flag)
+    return args[i + 1] if i + 1 < len(args) else default
+
+
+def use_apps_config():
+    """apps.t2l (databaze konzole) - kdyz chybi, vytvori ho apps.py; editor bere z nej."""
+    global HX
+    try:
+        sys.path.insert(0, SCRIPT_DIR)
+        import apps
+        HX = apps.editor() or HX
+    except (ImportError, OSError):
+        pass
+
+
+def use_config(seen=None):
+    """config.t2l do konstant; seen = mtime posledniho nacteni, kdyz se nezmenil, nic.
+    Vraci mtime. CLMON4_CONF (zkouseni nanecisto) ma prednost."""
+    global CONFIG_FILE, WORKERS_DIR, AVATAR_DIR, DIAG_SCRIPT, DIAG_FILE, DIAG_PYTHON, PANEL_PORT, KOUMES_PORT
+    config.ensure()
+    now = os.path.getmtime(config.CONFIG_T2L)
+    if now == seen:
+        return now
+    CONFIG_FILE = os.environ.get("CLMON4_CONF") or config.place("agents")
+    WORKERS_DIR, AVATAR_DIR = config.place("workers"), config.place("avatars")
+    PANEL_PORT, KOUMES_PORT = config.number("panel_port", PANEL_PORT), config.number("koumes_port", KOUMES_PORT)
+    for d in (KOUMES_CODE, KOUMES_PORTS, KOUMES_ROOTS, KOUMES_PYTHON):
+        d.clear()
+    for r in config.records("koumes"):
+        if r.get("id") and r.get("code") and r.get("root") and r.get("port", "").isdigit():
+            n = r["id"]
+            KOUMES_CODE[n], KOUMES_ROOTS[n] = config.expand(r["code"]), config.expand(r["root"])
+            KOUMES_PORTS[n] = int(r["port"])
+            KOUMES_PYTHON[n] = config.expand(r.get("python", "")) or sys.executable
+    d = next(iter(config.records("diag")), {})
+    DIAG_SCRIPT, DIAG_FILE = config.expand(d.get("script", "")), config.expand(d.get("file", ""))
+    DIAG_PYTHON = config.expand(d.get("python", "")) or sys.executable
+    return now
+
+
+def main():
+    args = sys.argv[1:]
+    use_apps_config()
+    use_config()
+    if args[:1] == ["--config"]:
+        # --config <klic> [hodnota]: totez, co appka config_view; bez hodnoty = vypnout
+        err = config.assign(args[1], " ".join(args[2:])) if len(args) > 1 else "--config KEY [VALUE]"
+        if err:
+            sys.exit("clmon: " + err)
+        return
+    if "-h" in args or "--help" in args:
+        head = open(ME, encoding="utf-8").read().split("\n\n")[0]
+        print("\n".join(l[2:] if l.startswith("# ") else l.lstrip("#")
+                        for l in head.splitlines()[1:]))
+        return
+    if "--kill" in args:
+        kill()
+        return
+    if "--close" in args:
+        close_all()
+        return
+    if "--clamp" in args:
+        clamp()
+        return
+    if "--fit" in args:
+        if not busy():
+            fit()
+        return
+    if "--paste" in args:
+        paste_cli(arg_after(args, "--paste", ""))
+        return
+    if "--copy" in args:
+        copy_cli(arg_after(args, "--copy", "join"))
+        return
+    if "--say" in args:
+        say(arg_after(args, "--say", ""))
+        return
+    if "--start" in args or "--free-worker" in args:
+        if not server_up():
+            sys.exit("clmon is not running - start it with the command clmon")
+        if "--free-worker" in args:
+            idx = free_worker()
+            if idx < 0:
+                sys.exit("žádný worker není volný")
+            print(entries()[idx][0])
+            return
+        err = start_cli(arg_after(args, "--start", ""))
+        if err:
+            sys.exit("clmon: " + err)
+        return
+    if "--dblstatus" in args:
+        name = arg_after(args, "--dblstatus", "")
+        if re.fullmatch(r"a\d+", name or ""):
+            err = dblclick(int(name[1:]))
+            if err:
+                say(err)
+        return
+    for flag in ("--click", "--dblclick"):
+        if flag in args:
+            i = args.index(flag)
+            try:
+                y = int(args[i + 1])
+                x = int(args[i + 2]) if i + 2 < len(args) else 99
+            except (IndexError, ValueError):
+                return
+            err = list_click(y, x, double=(flag == "--dblclick"))
+            if err:
+                say(err)
+            return
+    for flag, fn in (("--number", number),):
+        if flag in args:
+            try:
+                n = int(arg_after(args, flag, ""))
+            except ValueError:
+                return
+            err = fn(n)
+            if err:
+                say(err)
+            return
+    if "--toggle" in args:
+        err = toggle(arg_after(args, "--toggle", ""))
+        if err:
+            say(err)
+        return
+    if "--focus-list" in args:
+        focus("list")
+        return
+    if "--focus-agent" in args:
+        focus("agent")
+        return
+    if "--zoom" in args:
+        zoom()
+        return
+    if "--reload" in args:
+        lp = lay()["list"]
+        if not lp:
+            sys.exit("clmon neběží")
+        tmux("respawn-pane", "-k", "-t", lp["id"])      # jen seznam, agenti bezi dal
+        return
+    if "--idle" in args:
+        idle()
+        return
+    if "--tbar" in args:
+        tbar()
+        return
+    if "--menu" in args:
+        menu()
+        return
+    if "--stitek" in args:
+        stitek()
+        return
+    if "--avatar" in args:
+        avatar()
+        return
+    if "--view" in args:
+        try:
+            line = int(arg_after(args, "--line", "0")) if "--line" in args else 0
+        except ValueError:
+            line = 0
+        View(arg_after(args, "--view", ""), line).run()
+        return
+    if "--show-dir" in args:
+        # adresar v dirview v p1 (repos.py: klik na rozbalene repo)
+        err = show_dir({"file": arg_after(args, "--show-dir", "")})
+        if err:
+            sys.exit(err)
+        return
+    if "--open-right" in args:
+        i = args.index("--open-right")
+        if i + 2 >= len(args) or not server_up():
+            sys.exit("clmon: --open-right PANEL SOUBOR, a clmon musí běžet")
+        err = open_right(args[i + 1], args[i + 2], "--viewer" in args)
+        if err:
+            say(err)
+            sys.exit("clmon: " + err)
+        return
+    if args[:1] == ["--switch"]:
+        # prepinac prohlizece na stitku: --switch pN view|hx|ext <bin>
+        if len(args) < 3 or not re.fullmatch(r"p\d+", args[1]) or not server_up():
+            sys.exit("clmon: --switch pN view|hx|ext <bin>, a clmon musí běžet")
+        err = switch_panel(int(args[1][1:]), args[2], arg_after(args, "ext", "") if args[2] == "ext" else "")
+        if err:
+            sys.exit("clmon: " + err)
+        return
+    if args[:1] == ["--in_test"]:
+        # appka v panelu pN ukaze okynko, ze na ni nekdo testuje (jako diag_cross u diagu)
+        if len(args) < 3 or not re.fullmatch(r"p\d+", args[1]) or not server_up():
+            sys.exit("clmon: --in_test pN <agent> [--msg TEXT] | off, a clmon musí běžet")
+        p = panel(lay(), int(args[1][1:]))
+        if not p:
+            sys.exit("clmon: panel %s není" % args[1])
+        msg = arg_after(args, "--msg", "") if "--msg" in args else ""
+        rest = args[2:args.index("--msg")] if "--msg" in args else args[2:]
+        who = "" if args[2] == "off" else " ".join(rest)
+        if who:                                   # jmeno s ikonou z projects.conf: "🤖 KOUMES"
+            who = next((v for v in load_conf_names().values()
+                        if v.split()[-1].upper() == who.split()[-1].upper()), who)
+        popt(p["id"], "@test_img", (avatar_path(who) or "") if who else "")   # obrazek agenta
+        popt(p["id"], "@test_msg", msg if who else "")   # co testuje; \\n = novy radek (appka)
+        popt(p["id"], "@test", who)
+        return
+    if args[:1] == ["--port"]:
+        # port programu v panelu pN (panely se daji prohodit, port jde s programem)
+        if len(args) < 2 or not re.fullmatch(r"p\d+", args[1]) or not server_up():
+            sys.exit("clmon: --port pN, a clmon musí běžet")
+        p = panel(lay(), int(args[1][1:]))
+        if not p or not p["port"]:
+            sys.exit("clmon: v %s neběží program s portem" % args[1])
+        print(p["port"])
+        return
+    tpf = next((a for a in args if re.fullmatch(r"--t[px]\d+", a)), None)
+    if "--where" in args or tpf:
+        if not server_up():
+            sys.exit("clmon is not running - start it with the command clmon")
+        if "--where" in args:
+            where()
+            return
+        n = int(tpf[4:])
+        if not 1 <= n <= PANEL_MAX:
+            sys.exit("clmon: panely jsou p1 až p%d" % PANEL_MAX)
+        if tpf.startswith("--tx"):
+            err = close_panel(n)
+        else:
+            try:
+                line = int(arg_after(args, "--line", "0")) if "--line" in args else 0
+            except ValueError:
+                line = 0
+            err = tp(n, "" if "--run" in args else arg_after(args, tpf, ""), line, "--edit" in args,
+                     arg_after(args, "--run", "") if "--run" in args else "", "--hx" in args)
+        if err:
+            sys.exit("clmon: " + err)
+        return
+    if "--list" in args:
+        locale.setlocale(locale.LC_ALL, "")
+        curses.wrapper(lambda scr: ListUi(scr).run())
+        return
+    start()
+
+
+if __name__ == "__main__":
+    main()

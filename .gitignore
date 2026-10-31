@@ -1,4 +1,4 @@
-config/
+other_config/
 __pycache__/
 *.py[cod]
 *.egg-info/
@@ -13,7 +13,24 @@ venv/
 .env
 
 # Not public. The repo carries code - KOUMES/ and cmd_sys/ - and nothing else.
-marketing/
+articles/
 
 # Working backups made while editing; kept on disk, never in history.
 *.bak-*
+
+# Pracovní srovnání dev <-> prod (sync_scan / sync_view), ne do historie.
+other_temp/
+
+# Agent's own notes, not code: rules, findings, mistakes (in every subdir).
+CLAUDE*.md
+AGENT_LEARNINGS.md
+KNOWLEDGE.md
+CONTEXT_*.md
+
+# State of the console git list (ticks, folds) - per checkout, not shared.
+git_list.t2l
+
+# Database of the console - written by KOUMES_KONZOLE/apps.py when missing.
+KOUMES_KONZOLE/apps.t2l
+# Places of this machine - written empty by KOUMES_KONZOLE/config.py when missing.
+KOUMES_KONZOLE/config.t2l
