@@ -1,0 +1,86 @@
+#: redline markup for panely.png
+#: coordinates are fractions of the image size (0-1), not pixels
+
+type: redline
+file: [[file:panely.png]]
+version: 3
+
+type: label
+text: 1
+points: 0.12091,0.034091
+
+type: label
+text: 2
+points: 0.77933,0.038876
+
+type: label
+text: 3
+points: 0.10016,0.159689
+
+type: label
+text: 4
+points: 0.167199,0.195574
+
+type: label
+text: 3
+points: 0.607741,0.162081
+
+type: label
+text: 4
+points: 0.851955,0.186005
+
+type: label
+text: 5
+points: 0.925379,0.105861
+
+type: label
+text: 6
+points: 0.045092,0.123804
+
+type: label
+text: 6
+points: 0.325219,0.125
+
+type: label
+text: 7
+points: 0.014765,0.176435
+
+type: label
+text: 7
+points: 0.305267,0.182416
+
+type: label
+text: 8
+points: 0.809657,0.129785
+
+type: label
+text: 9
+points: 0.023543,0.044856
+
+type: label
+text: 9
+points: 0.305267,0.04366
+
+type: label
+text: 10
+points: 0.167997,0.081938
+
+type: label
+text: 10
+points: 0.348364,0.046053
+
+type: label
+text: 11
+points: 0.092977,0.040072
+
+type: label
+text: 12
+points: 0.380287,0.040072
+
+type: label
+text: 13
+points: 0.42099,0.04366
+
+type: label
+text: 14
+points: 0.061053,0.041268

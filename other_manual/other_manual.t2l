@@ -1,0 +1,6 @@
+#: This directory can open as an application - the record below says which one.
+#: `manual.exe.html` is looked up from here upwards, so the bare name without extension is enough.
+#: The `dir` panel bar gets a switch: `manual` or the plain file listing.
+
+type: viewer
+name: manual

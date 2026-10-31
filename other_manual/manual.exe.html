@@ -1,0 +1,185 @@
+<!doctype html>
+<!--
+Copyright (C) 2026 Petr Talla. [petr.talla@gmail.com]
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+          http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<script src="../../koumes.view_html/web_bridge.js"></script>
+<title>manual</title>
+<style>
+  :root {
+    --bg:     #fbfaf8;
+    --fg:     #1f2430;
+    --muted:  #6b7280;
+    --rule:   #e3e0da;
+    --accent: #6b21a8;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 17px/1.6 Georgia, "Times New Roman", serif; }
+
+  .wrap { max-width: 760px; margin: 0 auto; padding: 32px 28px 64px; }
+
+  h1 { font-family: system-ui, -apple-system, sans-serif;
+       font-size: 2rem; letter-spacing: .04em; color: var(--accent);
+       margin: 0 0 1.2em; }
+
+  table { width: 100%; border-collapse: collapse; }
+
+  /* prvni radek kapitoly - klikaci */
+  tr.ch { cursor: pointer; }
+  tr.ch td { padding: 11px 10px 4px; vertical-align: baseline; border: 0;
+             background: #eae2f5; }
+  tr.ch:hover td { background: #f8dfbe; }
+  /* nad tlacitkem 📂 se radek nezvyrazni - ta akce je jina nez klik na radek */
+  tr.ch:has(td.go button:hover) td { background: #eae2f5; }
+
+  /* druhy radek - popis pres celou sirku, neaktivni */
+  tr.dsc td { padding: 0 10px 12px; border-bottom: 1px solid var(--rule);
+              color: var(--muted); font-size: .92em;
+              cursor: default; user-select: text; }
+
+  td.num { font-family: ui-monospace, SFMono-Regular, monospace;
+           font-size: .85em; color: var(--muted); width: 3.2em; }
+  td.name { font-family: system-ui, -apple-system, sans-serif;
+            font-weight: 600; font-size: 1rem; width: 100%; }
+  td.go { text-align: right; white-space: nowrap; }
+
+  td.go button {
+    font: 600 16px/1 ui-monospace, SFMono-Regular, monospace;
+    padding: 5px 11px; border: 1px solid var(--rule); border-radius: 4px;
+    background: #fff; color: var(--muted); cursor: pointer;
+  }
+  td.go button:hover { background: #d9c8ee; border-color: #b79ce0;
+                       color: var(--accent); }
+
+  .err { color: #b00; font-family: monospace; padding: 1em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>manual</h1>
+  <table id="list"><tbody><tr><td class="desc">loading…</td></tr></tbody></table>
+</div>
+
+<script>
+(function () {
+  const $tb = document.querySelector('#list tbody');
+
+  const params = new URLSearchParams(location.search);
+  let base = params.get('dir') || params.get('file') || '';
+  if (/\.[a-z0-9]+$/i.test(base)) base = base.replace(/[^/]*$/, '');
+  base = base.replace(/\/+$/, '');
+
+  function esc(s) {
+    return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  }
+
+  // prvni odstavec z text.md jako popisek radku
+  function firstPara(md) {
+    const lines = md.split(/\r?\n/);
+    const out = [];
+    for (const l of lines) {
+      const t = l.trim();
+      if (!t || t.startsWith('#')) { if (out.length) break; else continue; }
+      if (t.startsWith('![') || t.startsWith('<') || t.startsWith('|')) {
+        if (out.length) break; else continue;
+      }
+      out.push(t);
+      if (out.join(' ').length > 110) break;
+    }
+    let s = out.join(' ').replace(/[*`]/g, '');
+    if (s.length > 130) s = s.slice(0, 130).replace(/\s+\S*$/, '') + '…';
+    return s;
+  }
+
+  function build(fs) {
+    // fs.list vraci pole JMEN, ne objektu - viz dirs.exe.html, kde se na kazdou
+    // polozku vola fs.isDir zvlast. Kapitolu poznam podle tvaru `NN_neco`,
+    // takze isDir volat nemusim.
+    fs.list(base, entries => {
+      const chapters = (entries || [])
+        .map(e => (typeof e === 'string' ? e : (e && e.name) || ''))
+        .filter(n => /^\d\d_/.test(n))
+        .sort();
+
+      if (!chapters.length) {
+        $tb.innerHTML = '<tr><td class="desc">no chapters</td></tr>';
+        return;
+      }
+
+      $tb.innerHTML = '';
+      chapters.forEach(ch => {
+        const dir  = base + '/' + ch;
+        const file = dir + '/text.md';
+
+        // 1. radek: cislo + nazev + tlacitko na adresar
+        const tr = document.createElement('tr');
+        tr.className = 'ch';
+        tr.innerHTML =
+          '<td class="num">' + esc(ch.slice(0, 2)) + '</td>' +
+          '<td class="name">' + esc(ch.replace(/^\d\d_/, '').replace(/_/g, ' ')) + '</td>' +
+          '<td class="go"><button type="button" title="open chapter directory">📂</button></td>';
+
+        // klik na radek - text kapitoly do p1
+        tr.addEventListener('click', () => {
+          const cf = window.__chroma && window.__chroma.fs;
+          if (cf && cf.exec) cf.exec('panel_show p1 "' + file + '"');
+        });
+
+        // tlacitko - naviguj dir panel do kapitoly
+        tr.querySelector('button').addEventListener('click', ev => {
+          ev.stopPropagation();
+          const cf = window.__chroma && window.__chroma.fs;
+          if (cf && cf.exec) cf.exec('chroma_setdir "' + dir + '"');
+        });
+
+        // 2. radek: popis pres celou sirku, na nic se neklika
+        const trd = document.createElement('tr');
+        trd.className = 'dsc';
+        trd.innerHTML = '<td colspan="3"></td>';
+
+        $tb.appendChild(tr);
+        $tb.appendChild(trd);
+
+        fs.read(file, txt => {
+          if (!txt) return;
+          trd.querySelector('td').textContent = firstPara(txt);
+          // nazev z h1 text.md (anglicky), jmeno adresare zustava jen jako fallback
+          const h1 = (txt.match(/^#\s+(.+)$/m) || [])[1];
+          if (h1) tr.querySelector('.name').textContent = h1.replace(/^\d\d_/, '').replace(/_/g, ' ');
+        });
+      });
+    });
+  }
+
+  let tries = 0;
+  (function boot() {
+    if (window.__chroma && window.__chroma.ready) {
+      window.__chroma.ready.then(build);
+      return;
+    }
+    if (++tries > 50) {
+      $tb.innerHTML = '<tr><td class="err">chroma bridge did not come up</td></tr>';
+      return;
+    }
+    setTimeout(boot, 100);
+  })();
+})();
+</script>
+</body>
+</html>

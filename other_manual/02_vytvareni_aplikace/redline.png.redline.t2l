@@ -1,0 +1,14 @@
+#: redline markup for redline.png
+#: coordinates are fractions of the image size (0-1), not pixels
+
+type: redline
+file: [[file:redline.png]]
+version: 3
+
+type: label
+text: 6
+points: 0.612392,0.345557 0.616715,0.476728 0.786744,0.473907 0.81268,0.61213
+
+type: label
+text: 7
+points: 0.896254,0.440056 0.897695,0.568406
