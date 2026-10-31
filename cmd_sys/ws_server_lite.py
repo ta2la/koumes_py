@@ -70,7 +70,8 @@ class WsServerLite:
     async def _serve(self) -> None:
         if websockets is None:
             return
-        self._server = await websockets.serve(self._handler, "127.0.0.1", self.port_)
+        self._server = await websockets.serve(self._handler, "127.0.0.1", self.port_,
+                                              origins=[None])    # prohlizec ma Origin vzdy: web se nedostane
         await self._server.wait_closed()
 
     async def _handler(self, websocket) -> None:

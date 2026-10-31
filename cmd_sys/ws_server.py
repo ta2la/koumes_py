@@ -55,7 +55,8 @@ class WsServer(CmdExeGuard):
             pass
 
     async def _serve(self) -> None:
-        server = await websockets.serve(self._client, "127.0.0.1", self.port)
+        server = await websockets.serve(self._client, "127.0.0.1", self.port,
+                                        origins=[None])    # prohlizec ma Origin vzdy: web se nedostane
         await server.wait_closed()
 
     async def _client(self, ws) -> None:

@@ -40,6 +40,9 @@ An application with a WebSocket connector takes one command per line:
 echo 'chroma_dir' | websocat -n1 ws://127.0.0.1:<port>
 ```
 
+Only for local clients: the port listens on 127.0.0.1 and a client with an `Origin` header is
+refused, so a web page in a browser cannot get in.
+
 `-n1` waits for the reply. The reply is the command line with the output appended,
 e.g. `chroma_dir --DIR /some/dir --USER EXTERNAL_WS`. An error comes as `--ERROR <text>`.
 Every executed command is broadcast to all connected clients.
