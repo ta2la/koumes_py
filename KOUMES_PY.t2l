@@ -2,32 +2,29 @@
 #:
 #: Záznam leží u zdroje, ne u cíle - kdo chce něco odsud dostat ven, musí sáhnout
 #: sem. Adresář, který takový záznam nemá, nepublikuje nic a nejde k tomu
-#: donutit zvenku; `private/` tedy z principu neodejde, ať si balík píše, co chce.
+#: donutit zvenku; soukromý adresář tedy z principu neodejde, ať si balík píše, co chce.
 #:
 #: Minimum runnable - zdroj + config + viewery + dokumentace a nápovědy.
 #: Ne git, ne venv, ne cache, ne backupy, ne `.t2l` checks (interní review),
 #: ne oneshot/plan/corrections/diff .md (pracovní poznámky).
 
 type: sys__koumes_publish
-target: www/KOUMES/KOUMES_PY
+target: www/koumes_com/KOUMES/KOUMES_PY
 #: Top-level
 file: pyproject.toml
 file: README.md
-file: checks.html
-file: cheks.html.md
 #: Hlavni app modul
 file: KOUMES/*.py
 file: KOUMES/qwebchannel.js
-file: KOUMES/dirview/*.html
+file: KOUMES_PY_APPS/*.html
 #: cmd_sys modul (dependency)
 file: cmd_sys/*.py
-file: cmd_sys/cmds_help/*.md
-#: Config template (bez cmdlog.txt = runtime log, bez settings.t2l = per stroj)
-file: config/config.t2l
+#: Z config/ jde ven jen nápověda. `config.t2l` je stav jednoho nasazení -
+#: port, pozice okna, co bylo otevřené - a kdyby se publikoval, přepsal by
+#: build cílovému nasazení jeho vlastní port. Appka si ho založí sama.
 #: Napoveda - <jmeno>.help.md vedle toho, co vysvetluje
 file: *.help.md
 file: KOUMES/*.help.md
-file: KOUMES/dirview/*.help.md
+file: KOUMES_PY_APPS/*.help.md
 file: cmd_sys/*.help.md
-file: cmd_sys/cmds_help/*.help.md
 file: config/*.help.md
