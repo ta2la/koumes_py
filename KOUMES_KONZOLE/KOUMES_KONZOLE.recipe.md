@@ -133,8 +133,8 @@ each pass. `ListUi` writes the number of running agents to `@busy`.
 `diag_start`.
 
 **Dispatch.** `toggle(name)`: koumes names, diag, dir, config, exit_actual, `a<i>`, and
-`(p|x|chat|lock|refresh|updir|copy|sh|mvl|mvr|repos|timeax|apps)<n>`. `launch`, `free_worker`,
-`start_cli`, `show`, `dblclick`, `close_all` (refuses while an agent runs), `exit_actual`,
+`(p|x|chat|lock|refresh|updir|copy|sh|mvl|mvr|repos|timeax|aicom|remarks|apps)<n>`. `launch`, `free_worker`,
+`start_cli`, `snapshot(what)` (capture-pane -e into a monospace block, a fence of four when the text holds three), `show`, `dblclick`, `close_all` (refuses while an agent runs), `exit_actual`,
 `icon_col`, `on_icon`, `deactivate`, `list_click`, `number`, `bind_keys`.
 
 **Curses.** Class **`Ui(scr)`** (`put`, `title`, `close`), avatar: `avatar_path(label)`

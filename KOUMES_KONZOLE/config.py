@@ -47,7 +47,8 @@ FIELDS = [
 - **Format:** `<year>_qN/MM_DD_name`
 - **Used by:** [timeax] shows them in dirview as one list, newest first, 25 at a time
 - **Selected item:** opens in the panel to the right
-- **Not set:** no [timeax] and no [timeaxis] button
+- **Aicom:** items `MM_DD_name.AICOM` hold dated files shared with agents; [aicom] lists them, newest at the bottom
+- **Not set:** no [timeax], [timeaxis] and [aicom] buttons
 """),
     ("places", "avatars", "dir", """Pictures of agents.
 

@@ -38,6 +38,8 @@ Second part of the menu: agents that do not run, click starts them.
 | `[repos]` | all git repos under `tree` |
 | `[>_]` | a shell in the panel, again = back |
 | `[timeax]` | dirview in timeaxis mode; there with `timeaxis` assigned |
+| `[aicom]` | dirview in aicom mode; there with `timeaxis` assigned |
+| `[remarks]` | the last remarks as a timeaxis item; there with `timeaxis` assigned |
 | `[apps]` | the list of apps and programs |
 | `[← dir]` | the directory of the shown file in dirview |
 | `[🔃]` | reloads the panel; a change of an app's code needs a restart of the app |
@@ -88,6 +90,14 @@ panel number.
 |---|---|
 | `clmon --start worker` | starts the free worker with the lowest number, in the background |
 | `clmon --start NAME\|NUMBER` | starts an agent in the background, without switching |
+
+### Snapshot of a window
+
+| command | what it does |
+|---|---|
+| `clmon --snapshot pN\|agent` | prints what the panel or the agent window shows, with colors, as a ` ```monospace ` block |
+| `clmon --snapshot pN --to FILE` | appends it to a file |
+| `clmon --snapshot pN --aicom [NAME]` | a new item of the last aicom |
 
 ### Testing an app
 
