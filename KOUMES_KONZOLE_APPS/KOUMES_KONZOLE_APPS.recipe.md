@@ -86,6 +86,14 @@ top. An ignored directory is closed, a `fold` record means open for it; its cont
 tick right after the name, zone of the fold in the branch, else the file to the right;
 `hover_at`: dark ✔ on the tick spot only. Top row asks through `ask`.
 
+### `git_diff`
+
+**`GitDiff(path)`** (a `Pane`), `@file` = `diff:<path>`, `WATCH` for a file. `render`: menu row, `git diff -U<context> HEAD`,
+messages for no repo, not in git, no changes. `show`: file name, rows on `BG_ADD`, `BG_DEL` padded to
+the width, wrapped; `@@` becomes `gap`, the hidden lines from `RE_HUNK` in new numbering, the rest of
+the file counted on disk. `STEP = 3`.
+In `git_list` `diffs` and in `dirview` `Entry.mark_x` hold the column of 📝.
+
 ### `dirview`
 
 Port of the C++ browser. Constants of buttons and virtual directories: `REPOS = "repos:"`,

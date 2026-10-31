@@ -19,6 +19,7 @@ program opens what from `KOUMES_KONZOLE/apps.t2l`.
 | `konzole_view` | library | the shared panel: scrolling rows, clicks, links, md, images, dialogs, watching a file |
 | `viewer` | app | a file: text with line numbers, md, html, images |
 | `git_list` | app | a whole git repo as a tree, with state, ticks and folds |
+| `git_diff` | app | uncommitted changes of a file or directory, one column |
 | `dirview` | app | directory browser, repos, C++ modules, timeaxis mode; commands over WebSocket |
 | `aicom` | tool | a channel of a person and an agent in the timeaxis: writes, moves files in, clipboard both ways; also remarks |
 | `stamp` | tool | one click writes a record with the exact time into a dated t2l file |

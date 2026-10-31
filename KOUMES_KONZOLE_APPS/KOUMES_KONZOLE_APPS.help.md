@@ -49,6 +49,17 @@ file opens it in the panel to the right. Colors: `.md` yellow, module descriptio
 
 Ticks and folds are in `git_list.t2l` in the root of the repo, not in git.
 
+## git_diff
+
+```bash
+git_diff.py PATH
+```
+
+Uncommitted changes against HEAD in one column, the stage included, added rows on dark green,
+removed on red; a click on 📝 in git_list or dirview opens it on the right. [- less] [+ more] or
+keys - + change the lines shown around a change, by 3; a rule between changes says how many lines
+are hidden. A file not in git has nothing to compare with and says so.
+
 ## dirview
 
 ```bash
@@ -85,7 +96,8 @@ echo 'chroma_dir' | websocat -n1 ws://127.0.0.1:PORT
 | `cppb_view [path]` | the repo tree on the right |
 | `cppb_repos` | all repos on the right |
 | `cppb_timeaxis` | timeaxis mode |
-| `cppb_aicom` | aicom mode |
+| `cppb_diff [path]` | uncommitted changes of the selected row on the right |
+| `cppb_aicom` | the last aicom on the right |
 | `cppb_remarks` | the last remarks on the right |
 | `cppb_paste` | `--FILE` the clipboard as a new item of the last aicom |
 | `cppb_copy` | the selected aicom item into the clipboard |
@@ -119,7 +131,7 @@ it, `link URL [NAME] [--clip]` writes one item from its parts: the link, text on
 clipboard; a picture lies next to the md under the same name and belongs to that item. A URL in a shown md
 is active: a click opens the original.
 
-[remarks] opens the last remarks in `timeaxis_item_esence`. In dirview [aicom] shows the items of the last aicom, opposite to timeaxis mode: the
+[aicom] and [remarks] open the last one in `timeaxis_item_esence`. `dirview.py aicom:` lists the items of the last aicom, opposite to timeaxis mode: the
 newest at the bottom, [more] on top adds older ones. Otherwise the same: the selected item
 opens on the right, [back] returns. [paste] and [copy] do the same as the commands; the list
 follows a new item while the last row is selected.
@@ -152,7 +164,7 @@ ITEM is a file, or a directory whose files go one after another. 25 rows of each
 more, [less] back. A file name is a link to the panel on the right, binaries and URLs open
 outside. Commands: none.
 
-An item of an aicom shows all items from it to the oldest, each under a rule with its date and
+A `.AICOM` or `.REMARKS` directory always opens here, not as a directory. An item of an aicom shows all items from it to the oldest, each under a rule with its date and
 time; the newest one selected = everything from the newest on. A click on ⊟ at the start of
 the rule shrinks an item to that rule, ⊞ expands it; kept in `aicom.t2l` in the aicom.
 

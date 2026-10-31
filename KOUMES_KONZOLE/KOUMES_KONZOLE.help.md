@@ -38,7 +38,7 @@ Second part of the menu: agents that do not run, click starts them.
 | `[repos]` | all git repos under `tree` |
 | `[>_]` | a shell in the panel, again = back |
 | `[timeax]` | dirview in timeaxis mode; there with `timeaxis` assigned |
-| `[aicom]` | dirview in aicom mode; there with `timeaxis` assigned |
+| `[aicom]` | the last aicom as a timeaxis item; there with `timeaxis` assigned |
 | `[remarks]` | the last remarks as a timeaxis item; there with `timeaxis` assigned |
 | `[apps]` | the list of apps and programs |
 | `[← dir]` | the directory of the shown file in dirview |

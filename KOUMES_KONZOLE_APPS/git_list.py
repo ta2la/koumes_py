@@ -4,7 +4,7 @@ Vydeleno z clmon (driv jeho prohlizec u adresare); zaklad je konzole_view.Pane.
 
 Usage: git_list.py <adresar>     (cesta k .git = cele repo)
 Strom s vetvemi ├─ └─ │.
-● = v gitu, ⊗ = v gitu, ale na disku chybi, prazdno = neni; 📝 za jmenem = zmenene proti HEAD; ✗ = git ignoruje. r = nacist znovu.
+● = v gitu, ⊗ = v gitu, ale na disku chybi, prazdno = neni; 📝 za jmenem = zmenene proti HEAD; ✗ = git ignoruje; klik na 📝 = zmeny vpravo. r = nacist znovu.
 ✔ za jmenem = fajfka (klik na misto ✔ za jmenem; znovu = pryc), u adresare vsechno pod nim,
 u horniho radku (cele repo) po potvrzeni.
 Adresar ma vetev ├⊟ (rozbaleny) / ├⊞ (sbaleny), klik na ni prepne; ignorovany je sbaleny, dokud
@@ -107,6 +107,7 @@ class GitList(Pane):
         self.top_row = None                 # radek celeho repa (fajfky jen po potvrzeni)
         self.remote = "github …"            # stav proti originu, pocita se na pozadi (sit)
         self.folds = {}                     # radek -> (od, do sloupce vetve, adresar)
+        self.diffs = {}                     # radek -> (od, do sloupce 📝, cesta)
         self.remote_check()
 
     def repo_dir(self):
@@ -128,7 +129,7 @@ class GitList(Pane):
         folds = {(key, f[len(pre):]) for k, f in f_all if f.startswith(pre)}
         collapsed = {d for rp, d in folds if rp == key}      # sbalene adresare (cesta s / na konci)
         self.ends, self.fileof, self.plain = {}, {}, {}
-        self.folds = {}
+        self.folds, self.diffs = {}, {}
         self.hover = None
         self.top_row = None
 
@@ -221,7 +222,9 @@ class GitList(Pane):
                 out.append((C_TREE + branch + RST + dot + name + ch,      # ● tesne pred jmenem
                             None if sub or v in gone or v.endswith("/") else ("view", os.path.join(root, v)),
                             fs, cwidth(branch) + 2 + cwidth(t) + cwidth(ch), mark(fs),
-                            (cwidth(pre), path + k) if sub or ign_dir else None))
+                            (cwidth(pre), path + k) if sub or ign_dir else None,
+                            (cwidth(branch) + 3 + cwidth(t), os.path.join(root, path + k if sub else v))
+                            if ch else None))
                 if sub and not fold:
                     walk(v, pre + ("   " if last else "│  "), path + k)
                 elif ign_dir and not fold:
@@ -247,8 +250,11 @@ class GitList(Pane):
         self.add(DIM + " " + line + RST)
         self.add("")
         self.top_row = len(self.rows)
-        out.insert(0, (C_DIR + top + RST, None, everything, cwidth(top), mark(everything), None))
-        for i, (row, act, fs, end, tick, fold) in enumerate(out):
+        out.insert(0, (C_DIR + top + RST, None, everything, cwidth(top), mark(everything), None, None))
+        for i, (row, act, fs, end, tick, fold, diff) in enumerate(out):
+            if diff:
+                x0 = gut + 1 + diff[0]
+                self.diffs[len(self.rows)] = (x0, x0 + 1, diff[1])
             if fold:
                 x0 = gut + 1 + fold[0]
                 self.folds[len(self.rows)] = (x0, x0 + 1, fold[1])
@@ -323,6 +329,10 @@ class GitList(Pane):
             ticks, folds = load_state(top)
             save_state(top, ticks, folds ^ {(repo_key(top), self.prefix + self.folds[i][2])})
             self.resized = True
+            return
+        if i in self.diffs and self.diffs[i][0] <= x <= self.diffs[i][1]:   # 📝: zmeny vpravo
+            if self.pane:
+                self.console("--open-right", self.pane, "diff:" + self.diffs[i][2])
             return
         if i in self.ends and self.ends[i] <= x <= self.ends[i] + 2:   # jen misto fajfky
             fs = self.fileof[i]

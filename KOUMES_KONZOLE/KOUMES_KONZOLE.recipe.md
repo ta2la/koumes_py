@@ -145,7 +145,7 @@ each pass. `ListUi` writes the number of running agents to `@busy`.
 **Built-in viewer.** Class **`View(path, line)`** and its helpers (`link_row`, `virtual`,
 `wrap_cells`, `chafa_lines`, `image_block`, `md_lines`, `html_to_md`) behind `--view`, now only for an empty
 panel; a file goes to `viewer`, a directory to `git_list`, repos to `repos`, an item to
-`timeaxis_item_esence` (see `view_cmd`).
+`timeaxis_item_esence`, `diff:<path>` to `git_diff`, a `.AICOM` or `.REMARKS` directory to `timeaxis_item_esence` (see `view_cmd`).
 
 **Start.** `zoom`, `focus`, `idle`, `start`, `kill`, `arg_after`, `use_apps_config`,
 `use_config(seen) -> mtime` (config into the module constants, `KOUMES_*` dicts, `DIAG_*`,

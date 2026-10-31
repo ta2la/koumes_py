@@ -1979,6 +1979,7 @@ AICOM_TOOL = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "KOUMES_KONZOLE_APP
 ESENCE_APP = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "KOUMES_KONZOLE_APPS",
                                            "timeaxis_item_esence.py"))
 GIT_LIST = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "KOUMES_KONZOLE_APPS", "git_list.py"))
+GIT_DIFF = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "KOUMES_KONZOLE_APPS", "git_diff.py"))
 REPOS_APP = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "KOUMES_KONZOLE_APPS", "repos.py"))
 CONFIG_VIEW = os.path.join(SCRIPT_DIR, "config_view.py")         # [config]: kde co je na tomhle stroji
 APPS_VIEWER = os.path.join(SCRIPT_DIR, "apps_viewer.py")         # [apps]: prehled appek konzole (lezi u ni)
@@ -1987,6 +1988,10 @@ APPS_VIEWER = os.path.join(SCRIPT_DIR, "apps_viewer.py")         # [apps]: prehl
 def view_cmd(path, line=0):
     if (path or "").startswith(ESENCE):
         return "%s %s" % (shlex.quote(ESENCE_APP), shlex.quote(path[len(ESENCE):]))
+    if (path or "").startswith(DIFF):
+        return "%s %s" % (shlex.quote(GIT_DIFF), shlex.quote(path[len(DIFF):]))
+    if path and os.path.isdir(path) and path.rstrip("/").endswith((".AICOM", ".REMARKS")):
+        return "%s %s" % (shlex.quote(ESENCE_APP), shlex.quote(path))      # svoje appka, ne adresar
     if path and os.path.isdir(path):
         return "%s %s" % (shlex.quote(GIT_LIST), shlex.quote(path))
     if path == REPOS:
@@ -2480,8 +2485,9 @@ def toggle(name):
             # [timeax] v liste panelu: dirview v rezimu timeaxis v tomhle panelu
             return tp(n, None, run="%s timeaxis:" % shlex.quote(DIR_VIEWER))
         if kind == "aicom":
-            # [aicom] v liste panelu: dirview v rezimu aicom v tomhle panelu
-            return tp(n, None, run="%s aicom:" % shlex.quote(DIR_VIEWER))
+            # [aicom] v liste panelu: posledni .AICOM v appce polozky, jako polozka timeaxis
+            last = subprocess.run([AICOM_TOOL, "find"], capture_output=True, text=True).stdout.strip()
+            return tp(n, ESENCE + last) if last else "no aicom yet"
         if kind == "remarks":
             # [remarks] v liste panelu: posledni .REMARKS v appce polozky, jako polozka timeaxis
             last = subprocess.run([AICOM_TOOL, "--remarks", "find"], capture_output=True,
@@ -3381,6 +3387,7 @@ C_GIT, C_DIR = "\x1b[38;5;244m", "\x1b[1;34m"      # ● v gitu; adresar ve stro
 REV = "\x1b[48;5;238m"                              # rozbalene repo v seznamu rep
 REPOS = "repos:"                                    # "soubor" pro prohlizec: vsechna repa pod tree z config.t2l
 ESENCE = "esence:"                                  # esence:<cesta> - jedna polozka TIMEAXIS v jednom okne
+DIFF = "diff:"                                      # diff:<cesta> - necommitnute zmeny (git_diff.py)
 TA_STEP = 25                                        # polozek na [more]; radku textu v esenci
 TA_MORE = 50                                        # radku textu navic na [more] v esenci
 C_BTN = "\x1b[1;33m"                                # [more] [less]
@@ -3401,7 +3408,7 @@ def link_row(pre, label, post, kind, hover):
 
 def virtual(path):
     """Prohlizec umi i "soubory", ktere nejsou na disku: repos:, esence:<cesta>."""
-    return path == REPOS or (path or "").startswith(ESENCE)
+    return path == REPOS or (path or "").startswith((ESENCE, DIFF))
 
 
 RE_IMG_MD = re.compile(r'^\s*!\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)\s*$')

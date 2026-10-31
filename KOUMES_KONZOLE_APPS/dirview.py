@@ -51,6 +51,7 @@ REPOS = "repos:"                  # pro konzoli: seznam vsech rep pod tree z con
 TIMEAXIS_BTN = "[timeaxis]"
 TIMEAXIS = "timeaxis:"            # "adresar" modu timeaxis
 ESENCE = "esence:"                # pro konzoli: esence:<cesta> polozky TIMEAXIS
+DIFF = "diff:"                    # pro konzoli: diff:<cesta> necommitnute zmeny
 BACK_BTN = "[back]"               # v modu timeaxis: zpet na adresar TIMEAXIS
 MORE = "[more]"                   # posledni polozka modu timeaxis: dalsich 25
 TIMEAXIS_STEP = 25
@@ -255,6 +256,7 @@ class Entry:
         self.in_git = False         # je v gitu (slozka: aspon jeden soubor v ni) - ● pred jmenem
         self.ignored = False        # vyloucene z gitu (.gitignore; slozka cela) - ✗ pred jmenem
         self.changed = False        # v gitu, ale zmenene proti HEAD - 📝 za jmenem
+        self.mark_x = -1            # sloupec 📝 na obrazovce, klik na nej ukaze zmeny
 
 
 class DirListing:
@@ -592,6 +594,9 @@ class TermUi:
                 return
             self.right(ESENCE + en.path)
             return
+        if en.is_dir and aicom.is_aicom(en.path):
+            self.right(ESENCE + en.path)                          # aicom, remarks: svoje appka
+            return
         if en.is_dir or is_file_list(en.path):
             self.set_dir(en.path)
             return
@@ -714,6 +719,7 @@ class TermUi:
                 text += color + s + RST + (SEL if sel else "")
             used += u
             if en.changed:
+                en.mark_x = used + 1
                 s, u = cut(" 📝", wr - 1 - used)              # v gitu, ale zmenene proti HEAD
                 text += s
                 used += u
@@ -816,6 +822,11 @@ class TermUi:
         i = self.top + y - self.list_top()
         if y < self.list_top() or not 0 <= i < len(self.list.entries):
             return
+        en = self.list.entries[i]
+        if en.changed and 0 <= en.mark_x <= x <= en.mark_x + 1:     # 📝: necommitnute zmeny vpravo
+            self.run("chroma_setline %d" % (i + 1))
+            self.run("cppb_diff")
+            return
         # jako v koumesu: klik jen vybere, klik na uz vybrany otevre (slozka = vlezt, soubor = vpravo)
         self.run("cppb_open" if i == self.cur else "chroma_setline %d" % (i + 1))
 
@@ -836,10 +847,11 @@ class CmdsDirview(Cmds):
                 ("cppb_view", self._view, "[path] - [git list]: the repo tree on the right"),
                 ("cppb_repos", self._repos, "[repos]: all repos on the right"),
                 ("cppb_timeaxis", self._timeaxis, "[timeaxis]: TIMEAXIS mode"),
-                ("cppb_aicom", self._aicom, "[aicom]: AICOM mode"),
+                ("cppb_aicom", self._aicom, "[aicom]: the last AICOM on the right"),
                 ("cppb_remarks", self._www, "[remarks]: the last REMARKS on the right"),
                 ("cppb_paste", self._paste, "[paste]: the clipboard as a new item of the last aicom"),
                 ("cppb_copy", self._copy, "[copy]: the selected aicom item into the clipboard"),
+                ("cppb_diff", self._diff, "[path] - 📝: uncommitted changes on the right"),
                 ("cppb_up", self._up, "one level up ([back] in TIMEAXIS and AICOM mode)"),
                 ("cppb_move", self._move, "<-1|+1|pgup|pgdn|home|end> - move the selection"),
                 ("panel_reload", self._reload, "read the directory again"),
@@ -884,8 +896,9 @@ class CmdsDirview(Cmds):
             return "cppb_timeaxis: nejde"
 
     def _aicom(self, a):
-        if not self.ui.view_aicom():
-            return "cppb_aicom: not possible"
+        d = aicom.dirs(aicom.AICOM)
+        if not d or not self.ui.right(ESENCE + d[-1]):
+            return "cppb_aicom: no aicom, or no console"
 
     def _www(self, a):
         d = aicom.dirs(aicom.LINKS)
@@ -899,6 +912,12 @@ class CmdsDirview(Cmds):
     def _copy(self, a):
         if not self.ui.aicom_copy():
             return "cppb_copy: nothing went to the clipboard"
+
+    def _diff(self, a):
+        e = self.ui.list.entries
+        path = a[0] if a else e[self.ui.cur].path if 0 <= self.ui.cur < len(e) else ""
+        if not path or not self.ui.right(DIFF + path):
+            return "cppb_diff: nothing selected, or no console"
 
     def _up(self, a):
         self.ui.up()
