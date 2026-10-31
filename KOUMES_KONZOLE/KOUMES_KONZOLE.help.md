@@ -133,6 +133,7 @@ Internal, called by the console itself: `--toggle`, `--tbar`, `--menu`, `--stite
 | `places` | `tree`, `code_root`, `agents`, `timeaxis`, `avatars`, `workers`, `panel_port`, `koumes_port` |
 | `koumes`, one per instance | `id` (button), `code`, `root`, `port`, `python` |
 | `diag` | `script`, `file`, `python` |
+| `stamp`, one per button | `id` (button after [apps]), `file`, `section`, `days`, `record`, the rest goes to the record; see `stamp` in `KOUMES_KONZOLE_APPS` |
 
 What each one is for: [config], click its row. A change appears without a restart.
 

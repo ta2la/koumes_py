@@ -21,6 +21,7 @@ program opens what from `KOUMES_KONZOLE/apps.t2l`.
 | `git_list` | app | a whole git repo as a tree, with state, ticks and folds |
 | `dirview` | app | directory browser, repos, C++ modules, timeaxis mode; commands over WebSocket |
 | `aicom` | tool | a channel of a person and an agent in the timeaxis: writes, moves files in, clipboard both ways; also remarks |
+| `stamp` | tool | one click writes a record with the exact time into a dated t2l file |
 | `repos` | app | all repos under `tree` |
 | `timeaxis_item_esence` | app | a timeaxis item in one window |
 | `pindani` | app | messages between agents, read from their transcripts |

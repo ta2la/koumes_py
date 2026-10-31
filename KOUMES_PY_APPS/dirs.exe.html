@@ -462,9 +462,9 @@ ChromaHandle.prototype.createWritable = function () {
   });
 
   // ====== helpers ======
-  // Writes the current state (dir + file) to <root>/cvz/iris-state.json so an agent
+  // Writes the current state (dir + file) to <root>/.t2l/iris-state.json so an agent
   // without the WebSocket can read the dir/file path straight from disk. Legacy; the
-  // write silently fails when <root>/cvz does not exist.
+  // write silently fails when <root>/.t2l does not exist.
   function writeState() {
     if (!rootHandle || !rootAbsPath) return;
     var state = {
@@ -473,8 +473,8 @@ ChromaHandle.prototype.createWritable = function () {
       ts:   new Date().toISOString()
     };
     console.log('writeState attempt:', state);
-    rootHandle.getDirectoryHandle('cvz', { create: false })
-      .then(function (cvz) { return cvz.getFileHandle('iris-state.json', { create: true }); })
+    rootHandle.getDirectoryHandle('.t2l', { create: false })
+      .then(function (dir) { return dir.getFileHandle('iris-state.json', { create: true }); })
       .then(function (fh)  { return fh.createWritable(); })
       .then(function (w)   { return w.write(JSON.stringify(state, null, 2)).then(function () { return w.close(); }); })
       .then(function ()    { console.log('writeState OK'); })

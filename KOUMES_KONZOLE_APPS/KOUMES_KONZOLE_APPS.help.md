@@ -36,7 +36,7 @@ Shows the **whole repo** of DIR as a tree, whichever directory DIR is. Not a rep
 | ● | in git |
 | 📝 | changed against HEAD |
 | ⊗ | in git, missing on disk |
-| ✗ | ignored by git; an ignored directory is one row |
+| ✗ | ignored by git; an ignored directory is closed until you open it with ⊞ |
 | no mark | not in git |
 | ✔ | ticked |
 | ⊟ ⊞ | a click folds or unfolds a directory |
@@ -123,6 +123,15 @@ is active: a click opens the original.
 newest at the bottom, [more] on top adds older ones. Otherwise the same: the selected item
 opens on the right, [back] returns. [paste] and [copy] do the same as the commands; the list
 follows a new item while the last row is selected.
+
+## stamp
+
+```bash
+stamp.py ID
+```
+
+A button from a `type: stamp` record in `config.t2l`: one click writes a record with date and time
+to a t2l file. The time or an error shows in the top bar. Attributes are described in `stamp.py`.
 
 ## repos
 

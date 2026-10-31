@@ -4,10 +4,11 @@ Vydeleno z clmon (driv jeho prohlizec u adresare); zaklad je konzole_view.Pane.
 
 Usage: git_list.py <adresar>     (cesta k .git = cele repo)
 Strom s vetvemi ├─ └─ │.
-● = v gitu, ⊗ = v gitu, ale na disku chybi, prazdno = neni; 📝 za jmenem = zmenene proti HEAD; co git ignoruje, chybi. r = nacist znovu.
+● = v gitu, ⊗ = v gitu, ale na disku chybi, prazdno = neni; 📝 za jmenem = zmenene proti HEAD; ✗ = git ignoruje. r = nacist znovu.
 ✔ za jmenem = fajfka (klik na misto ✔ za jmenem; znovu = pryc), u adresare vsechno pod nim,
 u horniho radku (cele repo) po potvrzeni.
-Adresar ma vetev ├⊟ (rozbaleny) / ├⊞ (sbaleny), klik na ni prepne. Fajfky i sbaleni drzi git_list.t2l v rootu listovaneho repa.
+Adresar ma vetev ├⊟ (rozbaleny) / ├⊞ (sbaleny), klik na ni prepne; ignorovany je sbaleny, dokud
+ho clovek nerozbali, jeho obsah se cte z disku az pak. Fajfky i sbaleni drzi git_list.t2l v rootu listovaneho repa.
 V titulku stav proti githubu (origin): ↑ nepushnute commity, ↓ commity, ktere tu chybi.
 Pousti ho konzole na adresar (prepinac ve stitku panelu). Klik na soubor = prohlizec vpravo.
 """
@@ -176,10 +177,24 @@ class GitList(Pane):
             """Fajfka za jmenem jen tehdy, kdyz jsou zafajfkovane vsechny soubory."""
             return " " + C_TICK + "✔" + RST if fs and all((key, f) in ticks for f in fs) else ""
 
+        def disk(d):
+            """Obsah ignorovaneho adresare z disku (git ho nezna), jedna uroven."""
+            node = {}
+            try:
+                entries = list(os.scandir(os.path.join(root, d)))
+            except OSError:
+                return node
+            for e in entries:
+                name = e.name + "/" if e.is_dir(follow_symlinks=False) else e.name
+                node[name] = d + name
+                ignored.add(d + name)
+            return node
+
         def walk(node, pre, path=""):
             """pre = vetve nad touhle urovni (│ kde se pokracuje, mezera kde ne);
             path = cesta adresare v repu."""
-            keys = sorted(node, key=lambda k: (not isinstance(node[k], dict), k.lower()))
+            keys = sorted(node, key=lambda k: (not isinstance(node[k], dict) and not k.endswith("/"),
+                                               k.lower()))
             for i, k in enumerate(keys):
                 v = node[k]
                 sub = isinstance(v, dict)
@@ -189,8 +204,10 @@ class GitList(Pane):
                     dot = C_GIT + "⊗ " + RST
                 if not sub and v in ignored:
                     dot = C_GIT + "✗ " + RST                 # git ho ignoruje
-                fold = sub and path + k in collapsed           # sbaleny adresar: ├⊞
-                branch = pre + ("└" if last else "├") + ("⊞ " if fold else "⊟ " if sub else "─ ")
+                ign_dir = not sub and v.endswith("/")          # ignorovany adresar
+                # sbaleny adresar: ├⊞; ignorovany naopak: sbaleny, zaznam ve stavu = rozbaleny
+                fold = (path + k in collapsed) != ign_dir if sub or ign_dir else False
+                branch = pre + ("└" if last else "├") + ("⊞ " if fold else "⊟ " if sub or ign_dir else "─ ")
                 t = (wrap_cells(k, max(4, w - 4 - len(branch))) or [""])[0]   # dlouhe jmeno oriznout
                 name = (C_DIR + t + RST) if sub else (DIM + t + RST if k.startswith(".") or v in gone
                                                       or v in ignored else t)
@@ -204,17 +221,20 @@ class GitList(Pane):
                 out.append((C_TREE + branch + RST + dot + name + ch,      # ● tesne pred jmenem
                             None if sub or v in gone or v.endswith("/") else ("view", os.path.join(root, v)),
                             fs, cwidth(branch) + 2 + cwidth(t) + cwidth(ch), mark(fs),
-                            (cwidth(pre), path + k) if sub else None))
+                            (cwidth(pre), path + k) if sub or ign_dir else None))
                 if sub and not fold:
                     walk(v, pre + ("   " if last else "│  "), path + k)
+                elif ign_dir and not fold:
+                    walk(disk(v), pre + ("   " if last else "│  "), v)
         out = []
+        n_ign = len(ignored)                 # do pocitadla jen co hlasi git, ne rozbalene
         walk(tree, "")
         gut = len(str(len(out)))
         # horni radek: cele repo
         top = os.path.basename(root) + "/"
         everything = list(files(tree))
         legend = ("● in git · 📝 changed against HEAD · ⊗ in git, missing on disk · no mark = "
-                  "not in git · ✗ ignored by git (an ignored directory is one row) · ✔ ticked (click right of the name, again = off; a directory ticks "
+                  "not in git · ✗ ignored by git · ✔ ticked (click right of the name, again = off; a directory ticks "
                   "all under it, the top row the whole repo) · ⊟ / ⊞ click folds / unfolds a "
                   "directory · .md yellow, module descriptions (.md, .recipe.md, .help.md) magenta")
         line = ""                                                # vyklad znacek nad stromem, po slovech
@@ -241,7 +261,7 @@ class GitList(Pane):
         n = len(tracked)
         self.title(short(root), "git list · %s · ● v gitu %d · 📝 změněné %d · ⊗ smazané %d · mimo git %d · ✗ %d · ✔ %d · r = znovu"
                    % (self.remote, n, len(changed - gone), len(gone),
-                      sum(1 for _ in files(tree)) - n - len(ignored), len(ignored),
+                      sum(1 for _ in files(tree)) - n - n_ign, n_ign,
                       sum(1 for r, _ in ticks if r == key)))
 
     def remote_check(self):

@@ -1530,6 +1530,13 @@ def tbar():
                         buttons.append((1, x + 1, x + len(ap), "apps%d" % n))
                         row += " \x1b[38;5;110m%s%s" % (ap, FG)
                         x += 1 + len(ap)
+                        # za [apps] tlacitka zapisu casu (type: stamp v config.t2l), kdyz se vejdou
+                        for i, rec in enumerate(config.records("stamp")):
+                            sb = "[%s]" % rec.get("id", "")
+                            if x + 2 + cwidth(sb) < size.columns:
+                                buttons.append((1, x + 1, x + cwidth(sb), "stamp%d" % i))
+                                row += " \x1b[38;5;180m%s%s" % (sb, FG)
+                                x += 1 + cwidth(sb)
                     # vpravo na druhem radku: [← dir] [🔃] [🔒] [<][>] [x]
                     # [🔒] zamek (zamceny panel se neprepisuje, dalsi obsah jde vedle), [x] zavre
                     lk = "[🔒]" if lock else "[🔓]"
@@ -1967,6 +1974,7 @@ def hx_cmd(path, line=0):
 # (KOUMES_KONZOLE_APPS/viewer.py, timeaxis_item_esence.py, git_list.py), repa taky
 # (repos.py); timeaxis je rezim dirview
 VIEWER = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "KOUMES_KONZOLE_APPS", "viewer.py"))
+STAMP_TOOL = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "KOUMES_KONZOLE_APPS", "stamp.py"))
 AICOM_TOOL = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "KOUMES_KONZOLE_APPS", "aicom.py"))
 ESENCE_APP = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "KOUMES_KONZOLE_APPS",
                                            "timeaxis_item_esence.py"))
@@ -2447,6 +2455,8 @@ def toggle(name):
         return tp(1, None, run=shlex.quote(CONFIG_VIEW))
     if name == "exit_actual":
         return exit_actual()
+    if re.fullmatch(r"stamp\d+", name):
+        return stamp_click(int(name[5:]))
     if re.fullmatch(r"a\d+", name):
         return show(int(name[1:]), True, start=True)      # klik na jmeno v radku nebezicich pusti
     L = lay()
@@ -3631,8 +3641,8 @@ class View:
         Pod rozbalenym repem jeho popis (record description, radky co:). Klik = rozbalit
         (jine se zavre), klik na rozbalene = otevrit v CPPBROWSE v p1."""
         if self.repos is None:
-            kadlub = config.tree()
-            r = subprocess.run(["find", kadlub, "-name", "node_modules", "-prune", "-o", "-name", ".venv",
+            tree = config.tree()
+            r = subprocess.run(["find", tree, "-name", "node_modules", "-prune", "-o", "-name", ".venv",
                                 "-prune", "-o", "-name", ".git", "-print", "-prune"],
                                capture_output=True, timeout=20)
             self.repos = sorted((os.path.dirname(g) for g in
@@ -4079,6 +4089,16 @@ def kill():
         if p["agent"] and p["role"] != "idle":
             print("ukončuji:", p["agent"])
     tmux("kill-server")
+
+
+def stamp_click(i):
+    """Tlacitko zapisu casu: jeden klik = zaznam, hlaska v horni liste potvrdi cas nebo chybu."""
+    recs = config.records("stamp")
+    if i >= len(recs):
+        return None
+    r = subprocess.run([STAMP_TOOL, recs[i].get("id", "")], capture_output=True, text=True)
+    say((r.stdout or r.stderr).strip())
+    return None
 
 
 def snapshot(what):

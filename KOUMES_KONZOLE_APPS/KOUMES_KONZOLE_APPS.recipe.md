@@ -81,7 +81,7 @@ e runs `clmon --tp<n> <path> --edit --line <top>`.
 
 **`GitList(path)`** (a `Pane`), `HOVER = True`. `repo_dir()`, `render`: `git ls-files`, status,
 ignored, deleted -> a tree, directories first, branches `├ └ │` with `⊟ ⊞`; legend paragraph on
-top. Ignored directory = one row. `remote_check`, `_remote` in a thread: `git ls-remote`,
+top. An ignored directory is closed, a `fold` record means open for it; its content is read from disk one level at a time. `remote_check`, `_remote` in a thread: `git ls-remote`,
 `rev-list --left-right`, title ↑ ↓, or a note that the remote is empty. `toggle(fs)`, `click`: zone of the
 tick right after the name, zone of the fold in the branch, else the file to the right;
 `hover_at`: dark ✔ on the tick spot only. Top row asks through `ask`.
@@ -119,6 +119,13 @@ gets the action `url`, with the whole URL from the source when rich wrapped it.
 In `dirview`: `AICOM = "aicom:"`, `DirListing._aicom` opposite to `_timeaxis`: last
 `timeaxis_count` items, oldest of them first, `[more]` as the first row. `set_dir` selects the
 last row; `reload` stays on the last row when it was there. `view_aicom`, `aicom_paste`, `aicom_copy`.
+
+### `stamp`
+
+`target(rec, now)` `{monday}` in `file`; `where(lines, rec, now)` the line opening the next day, the
+end of the file on the last day or without `section`, none when not found; `stamp(rec, now)` inserts
+the block `type`, `datum`, `cas` and the other attributes with empty rows around it, keeps all other
+lines, writes atomically. A missing file is an error, it is not created. `OWN` attributes are not copied.
 
 ### `repos`
 

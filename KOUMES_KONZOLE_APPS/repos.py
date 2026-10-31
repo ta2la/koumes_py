@@ -36,9 +36,9 @@ class Repos(Pane):
 
     def render(self, w, h):
         if self.repos is None:
-            kadlub = _config.tree()
+            tree = _config.tree()
             try:
-                r = subprocess.run(["find", kadlub, "-name", "node_modules", "-prune", "-o", "-name", ".venv",
+                r = subprocess.run(["find", tree, "-name", "node_modules", "-prune", "-o", "-name", ".venv",
                                     "-prune", "-o", "-name", ".git", "-print", "-prune"],
                                    capture_output=True, timeout=20)
             except (OSError, subprocess.SubprocessError) as e:
