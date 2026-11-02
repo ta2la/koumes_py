@@ -36,8 +36,8 @@ Constants: `IMG_EXT`, `MD_EXT`, `HTML_EXT`, `IMG_TALL = 2000`, colors `DIM`, `BO
 
 Functions:
 - `tmux(*args) -> (rc, out)`, `popt(pane, name, value)`, `short(path)` (`~`), `fsize(path)`;
-- `cwidth(s)`: terminal cells (combining and variation selectors 0, wide and emoji 2);
-  `wrap_cells(s, width)`;
+- `cwidth(s)`: terminal cells (combining and variation selectors 0, wide and emoji 2), ASCII = length;
+  `wrap_cells(s, width)`: the width of a character is counted against its neighbour only;
 - `run_ext(app, arg)`, `xdg_open(arg)`, `open_image(path)`, `link_row(pre, label, post, kind, hover)`;
 - `chafa_lines(path, width, height, fine=False)`: rows of a picture, `fine` = sextants, din99d;
   `img_path(src, base)`, `image_block(src, base, alt, width, height)`;
@@ -64,7 +64,7 @@ Functions:
 - mouse: `hover_at(y, x)`, `click(y, x)` handles `img`, `open`, `ext`, `url`, `html`, `int`
   (`--open-right` pane target), `view` (with `--viewer`), `txt`, else `action`;
 - terminal: `draw()`, `keys(timeout)` -> list of names, characters, `("click", y, x)`,
-  `("move", y, x)`; `run()`: cbreak, alternate screen, no cursor, mouse; loop `poll_test`,
+  `("move", y, x)`, reads `READ_SIZE = 4096`, a mouse sequence cut by the read waits in `pending`, of the moves only the last stays; `run()`: cbreak, alternate screen, no cursor, mouse; loop `poll_test`,
   `draw`, input with 1 s timeout; dialog takes all input.
 
 ### `viewer`
@@ -81,7 +81,7 @@ e runs `clmon --tp<n> <path> --edit --line <top>`.
 
 **`GitList(path)`** (a `Pane`), `HOVER = True`. `repo_dir()`, `render`: `git ls-files`, status,
 ignored, deleted -> a tree, directories first, branches `├ └ │` with `⊟ ⊞`; legend paragraph on
-top. An ignored directory is closed, a `fold` record means open for it; its content is read from disk one level at a time. `remote_check`, `_remote` in a thread: `git ls-remote`,
+top. The top row has in the number column ⊟ when the only `fold` record is `dir: *` (`ALL_OPEN`), else ⊞: ⊞ replaces the folds by that record, with it ignored directories are open and their record means closed; ⊟ replaces them by a record for every git directory, the first level stays. An ignored directory is closed, a `fold` record means open for it; its content is read from disk one level at a time. `remote_check`, `_remote` in a thread: `git ls-remote`,
 `rev-list --left-right`, title ↑ ↓, or a note that the remote is empty. `toggle(fs)`, `click`: zone of the
 tick right after the name, zone of the fold in the branch, else the file to the right;
 `hover_at`: dark ✔ on the tick spot only. Top row asks through `ask`.
@@ -145,7 +145,8 @@ remark, name, dim path. `action`: first click opens the description, second `--s
 **`Esence(item)`** (a `Pane`). `render`: each file of the item as in the viewer, cut at
 `STEP`, a rule between files; `more_less(f, less)`: +50 / back. `MORE = 50`. An item of an aicom
 (`aicom.is_aicom`): files from `aicom.from_item`, newest first, above each a rule with `aicom.stamp`, two empty rows above the rule between items. A click on the rule: `aicom.toggle`; a shrunk item
-is only its rule with its name. `aicom.STATE = "aicom.t2l"`, records `type: shrink` / `file: name`,
+is only its rule with its name. Above the items `show_dir`: a row with the aicom name and `═`, below it
+`aicom.older(d, OLDER = 8)`, folded; record `file: .` (`aicom.WHOLE`) in the aicom reverses that default. `aicom.STATE = "aicom.t2l"`, records `type: shrink` / `file: name`,
 not an item; `aicom.shrunk(d)`.
 
 ### `pindani`

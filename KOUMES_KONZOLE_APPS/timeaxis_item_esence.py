@@ -10,7 +10,8 @@ obrazky pres chafa. Prvnich 25 radku, [more] dalsich 50, [less] zpet; obrazek ma
 html v textu jsou odkazy (klik = otevrit externe), jmeno souboru je odkaz do panelu vpravo.
 Polozka aicomu: vsechny polozky od ni ke starsim (od nejnovejsi, kdyz je vybrana ta), nad
 kazdou cara s datem a casem; ⊟ / ⊞ na zacatku cary polozku sbali a rozbali, pamatuje si to
-aicom.t2l v jejim aicomu.
+aicom.t2l v jejim aicomu. Nad polozkami radek aicomu, ⊟ / ⊞ sbali a rozbali cely; pod nim az OLDER
+starsich aicomu stejneho druhu, sbalene.
 """
 
 import os
@@ -23,6 +24,7 @@ from konzole_view import BOLD, DIM, RST, Pane, cwidth, kind_of, read_text, short
 
 ESENCE = "esence:"       # @file panelu: konzole tak pozna, co panel ukazuje
 MORE = 50                # radku navic na [more]
+OLDER = 8                # kolik starsich aicomu pod otevrenym
 
 
 class Esence(Pane):
@@ -35,10 +37,15 @@ class Esence(Pane):
 
     def render(self, w, h):
         root = self.item
-        dated = aicom.is_aicom(root)
-        if dated:
-            files = aicom.from_item(root)
-        elif os.path.isdir(root):
+        if aicom.is_aicom(root):
+            d = root if os.path.isdir(root) else os.path.dirname(root)
+            self.show_dir(d, False, aicom.from_item(root), w, h)
+            for o in aicom.older(d, OLDER):
+                self.add("")
+                self.show_dir(o, True, aicom.files(o)[::-1], w, h)
+            self.title(short(root), "esence · [more] / [less] · klik na obrázek = otevřít")
+            return
+        if os.path.isdir(root):
             try:
                 names = sorted(os.listdir(root), key=str.lower)
             except OSError as e:
@@ -48,6 +55,18 @@ class Esence(Pane):
                      if not n.startswith(".") and os.path.isfile(os.path.join(root, n))]
         else:
             files = [root]
+        self.show(files, root, False, w, h)
+        self.title(short(root), "esence · [more] / [less] · klik na obrázek = otevřít")
+
+    def show_dir(self, d, older, files, w, h):
+        """Radek aicomu a pod nim jeho polozky; starsi je sbaleny, zaznam ve stavu to obraci."""
+        small = (aicom.WHOLE in aicom.shrunk(d)) != older
+        head = "%s %s " % ("⊞" if small else "⊟", os.path.basename(d))
+        self.add(BOLD + head + RST + DIM + "═" * max(1, w - 1 - cwidth(head)) + RST, ("fold_dir", d))
+        if not small:
+            self.show(files, d, True, w, h)
+
+    def show(self, files, root, dated, w, h):
         for k, f in enumerate(files):
             kind = kind_of(f)
             if dated:
@@ -81,11 +100,13 @@ class Esence(Pane):
                     for part in wrap_cells(ln.expandtabs(4), w - 1) or [""]:
                         self.add_text(part, os.path.dirname(f))
             self.cut_rows(start, self.lines.get(f, self.STEP), f, "řádků")
-        self.title(short(root), "esence · [more] / [less] · klik na obrázek = otevřít")
 
     def action(self, what, arg):
         if what == "fold":
             aicom.toggle(arg)
+            self.resized = True
+        elif what == "fold_dir":
+            aicom.toggle(os.path.join(arg, aicom.WHOLE))
             self.resized = True
 
     def more_less(self, f, less):

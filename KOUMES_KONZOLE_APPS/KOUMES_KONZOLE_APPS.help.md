@@ -39,7 +39,7 @@ Shows the **whole repo** of DIR as a tree, whichever directory DIR is. Not a rep
 | ✗ | ignored by git; an ignored directory is closed until you open it with ⊞ |
 | no mark | not in git |
 | ✔ | ticked |
-| ⊟ ⊞ | a click folds or unfolds a directory |
+| ⊟ ⊞ | a click folds or unfolds a directory; on the top row, in place of the number, ⊞ when anything is folded: unfolds all with their subtrees, ignored ones too; ⊟ folds all, the first level stays |
 
 Click right of the name = tick, again = off; a directory ticks all under it, it shows ✔ only
 when all its files are ticked; the top row ticks the repo, after a confirmation. A click on a
@@ -167,6 +167,8 @@ outside. Commands: none.
 A `.AICOM` or `.REMARKS` directory always opens here, not as a directory. An item of an aicom shows all items from it to the oldest, each under a rule with its date and
 time; the newest one selected = everything from the newest on. A click on ⊟ at the start of
 the rule shrinks an item to that rule, ⊞ expands it; kept in `aicom.t2l` in the aicom.
+Above the items a row with the name of the aicom, ⊟ / ⊞ folds it whole. Below it up to 8 older
+aicoms or remarks of the same kind, folded; ⊞ opens one.
 
 ## pindani
 

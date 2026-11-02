@@ -6,7 +6,7 @@ Usage: git_list.py <adresar>     (cesta k .git = cele repo)
 Strom s vetvemi ├─ └─ │.
 ● = v gitu, ⊗ = v gitu, ale na disku chybi, prazdno = neni; 📝 za jmenem = zmenene proti HEAD; ✗ = git ignoruje; klik na 📝 = zmeny vpravo. r = nacist znovu.
 ✔ za jmenem = fajfka (klik na misto ✔ za jmenem; znovu = pryc), u adresare vsechno pod nim,
-u horniho radku (cele repo) po potvrzeni.
+u horniho radku (cele repo) po potvrzeni. Horni radek ma misto cisla ⊞ (neco je sbalene: rozbalit vse, i ignorovane) / ⊟ (sbalit vse, zustane prvni uroven).
 Adresar ma vetev ├⊟ (rozbaleny) / ├⊞ (sbaleny), klik na ni prepne; ignorovany je sbaleny, dokud
 ho clovek nerozbali, jeho obsah se cte z disku az pak. Fajfky i sbaleni drzi git_list.t2l v rootu listovaneho repa.
 V titulku stav proti githubu (origin): ↑ nepushnute commity, ↓ commity, ktere tu chybi.
@@ -29,6 +29,7 @@ C_MOD = "\x1b[38;5;198m"                            # popis modulu: <modul>.md /
 C_TICK = "\x1b[1;32m"                               # ✔ fajfka
 C_HOV = "\x1b[38;5;238m"                            # ✔ pod mysi (jeste neni)
 STATE = "git_list.t2l"                               # stav git listu, v rootu listovaneho repa
+ALL_OPEN = "*"                                       # fold tohoto dir = rozbaleno vse, i ignorovane
 
 
 def state_path(root):
@@ -108,6 +109,8 @@ class GitList(Pane):
         self.remote = "github …"            # stav proti originu, pocita se na pozadi (sit)
         self.folds = {}                     # radek -> (od, do sloupce vetve, adresar)
         self.diffs = {}                     # radek -> (od, do sloupce 📝, cesta)
+        self.all_dirs, self.any_shrunk = set(), False   # adresare stromu; je aspon jeden sbaleny?
+        self.gut = 0                        # sirka sloupce cisel
         self.remote_check()
 
     def repo_dir(self):
@@ -174,6 +177,12 @@ class GitList(Pane):
                 else:
                     yield v
 
+        def dirs(node, path=""):
+            for k, v in node.items():
+                if isinstance(v, dict):
+                    yield path + k
+                    yield from dirs(v, path + k)
+
         def mark(fs):
             """Fajfka za jmenem jen tehdy, kdyz jsou zafajfkovane vsechny soubory."""
             return " " + C_TICK + "✔" + RST if fs and all((key, f) in ticks for f in fs) else ""
@@ -207,7 +216,9 @@ class GitList(Pane):
                     dot = C_GIT + "✗ " + RST                 # git ho ignoruje
                 ign_dir = not sub and v.endswith("/")          # ignorovany adresar
                 # sbaleny adresar: ├⊞; ignorovany naopak: sbaleny, zaznam ve stavu = rozbaleny
-                fold = (path + k in collapsed) != ign_dir if sub or ign_dir else False
+                # (po rozbaleni vseho je zaznam sbaleny jako u ostatnich)
+                fold = (path + k in collapsed) != (ign_dir and ALL_OPEN not in collapsed) \
+                    if sub or ign_dir else False
                 branch = pre + ("└" if last else "├") + ("⊞ " if fold else "⊟ " if sub or ign_dir else "─ ")
                 t = (wrap_cells(k, max(4, w - 4 - len(branch))) or [""])[0]   # dlouhe jmeno oriznout
                 name = (C_DIR + t + RST) if sub else (DIM + t + RST if k.startswith(".") or v in gone
@@ -233,13 +244,14 @@ class GitList(Pane):
         n_ign = len(ignored)                 # do pocitadla jen co hlasi git, ne rozbalene
         walk(tree, "")
         gut = len(str(len(out)))
+        self.gut = gut
+        self.all_dirs = set(dirs(tree))
+        self.any_shrunk = collapsed != {ALL_OPEN}
         # horni radek: cele repo
         top = os.path.basename(root) + "/"
         everything = list(files(tree))
         legend = ("● in git · 📝 changed against HEAD · ⊗ in git, missing on disk · no mark = "
-                  "not in git · ✗ ignored by git · ✔ ticked (click right of the name, again = off; a directory ticks "
-                  "all under it, the top row the whole repo) · ⊟ / ⊞ click folds / unfolds a "
-                  "directory · .md yellow, module descriptions (.md, .recipe.md, .help.md) magenta")
+                  "not in git · ✗ ignored by git · ✔ ticked")
         line = ""                                                # vyklad znacek nad stromem, po slovech
         for word in legend.split(" "):
             if line and cwidth(line + " " + word) > max(20, w - 2):
@@ -257,9 +269,10 @@ class GitList(Pane):
                 self.diffs[len(self.rows)] = (x0, x0 + 1, diff[1])
             if fold:
                 x0 = gut + 1 + fold[0]
-                self.folds[len(self.rows)] = (x0, x0 + 1, fold[1])
-            num = " " * gut if i == 0 else str(i).rjust(gut)
-            line = DIM + num + RST + " " + row                    # cislo radku uplne vlevo
+                self.folds[len(self.rows)] = (x0, x0 + 3, fold[1])   # vetev, ⊞, mezera a znacka vpravo
+            num = (C_TREE + ("⊞" if self.any_shrunk else "⊟").rjust(gut) if i == 0
+                   else DIM + str(i).rjust(gut))                  # horni radek: sbalit / rozbalit vse
+            line = num + RST + " " + row                    # cislo radku uplne vlevo
             self.ends[len(self.rows)] = gut + 1 + end
             self.fileof[len(self.rows)] = fs
             self.plain[len(self.rows)] = (line, line + tick)
@@ -324,6 +337,13 @@ class GitList(Pane):
         """Klik na misto fajfky za jmenem = fajfka (adresar: vse pod nim, cele repo po potvrzeni);
         jinak jako v Pane (jmeno souboru = prohlizec)."""
         i = self.top + y
+        if i == self.top_row and x <= self.gut:                  # sbalit / rozbalit vse
+            top = self.repo_top
+            key = repo_key(top)
+            save_state(top, load_state(top)[0], {(key, self.prefix + ALL_OPEN)} if self.any_shrunk
+                       else {(key, self.prefix + d) for d in self.all_dirs})
+            self.resized = True
+            return
         if i in self.folds and self.folds[i][0] <= x <= self.folds[i][1]:   # vetev adresare
             top = self.repo_top
             ticks, folds = load_state(top)

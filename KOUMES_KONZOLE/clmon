@@ -1598,7 +1598,7 @@ def tbar():
             termios.tcsetattr(fd, termios.TCSANOW, old)
 
 
-APP_NAME = {"view": "prohlížeč", "edit": "micro", "hx": "helix", "chat": "pindání", "sh": "konzole"}
+APP_NAME = {"view": "", "edit": "micro", "hx": "helix", "chat": "pindání", "sh": "konzole"}
 
 
 def panel_app(p):
@@ -1626,12 +1626,19 @@ def switch_options(p, shows=""):
     if not p or not (p["role"] in ("view", "hx", "edit") and p["file"] or dv and shows):
         return []
     path = os.path.expanduser(shows) if dv else p["file"]
-    if not os.path.exists(path):
+    ess = not dv and path.startswith(ESENCE)
+    if ess:
+        path = path[len(ESENCE):]
+    if not os.path.exists(path) or ess and not os.path.isdir(path):
         return []
     out = []
     if os.path.isdir(path):                               # adresar: dirview i git list (najde si repo)
+        dated = path.rstrip("/").endswith((".AICOM", ".REMARKS"))
+        if ess or dated:                                  # polozka timeaxis ve sve appce
+            out.append(("[esence]", True, ess or not dv, ["esence"]))
         out.append(("[dirview]", True, dv, ["dirview"]))
-        out.append(("[git_list]", True, p["role"] == "view", ["view"]))
+        if not dated:                                     # tomu by view_cmd dal zase esence
+            out.append(("[git_list]", True, p["role"] == "view" and not ess, ["view"]))
     else:
         out.append(("[viewer]", True, p["role"] == "view", ["view"]))
         if not is_binary(path) and shutil.which(HX):
@@ -1650,12 +1657,16 @@ def switch_options(p, shows=""):
 
 
 def switch_panel(n, how, prog=""):
-    """--switch pN view|hx|dirview|ext <bin>: interni = soubor panelu v tom programu v panelu,
+    """--switch pN view|hx|dirview|esence|ext <bin>: interni = soubor panelu v tom programu v panelu,
     externi = tentyz soubor v okne externi appky."""
     p = panel(lay(), n)
     path = (os.path.expanduser(panel_shows(p)) if p and p["role"] == "run" else p["file"]) if p else ""
+    if path.startswith(ESENCE):
+        path = path[len(ESENCE):]
     if not path:
         return "p%d nic neukazuje" % n
+    if how == "esence":
+        return tp(n, ESENCE + path)
     if how == "ext":
         subprocess.Popen([prog, path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          start_new_session=True)

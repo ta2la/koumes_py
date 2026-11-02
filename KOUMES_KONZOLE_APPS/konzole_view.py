@@ -51,6 +51,8 @@ RE_IMG_MD = re.compile(r'^\s*!\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\
 RE_IMG_HTML = re.compile(r'^\s*<img\b[^>]*\bsrc\s*=\s*["\']([^"\']+)["\'][^>]*>\s*$', re.I)
 RE_ALT = re.compile(r'\balt\s*=\s*["\']([^"\']*)["\']', re.I)
 RE_MOUSE = re.compile(rb"\x1b\[<(\d+);(\d+);(\d+)([Mm])")
+RE_PART = re.compile(rb"\x1b\[<[\d;]*$")              # zacatek sekvence mysi, zbytek jeste neprisel
+READ_SIZE = 4096
 KEY_NAMES = {b"\x1b[A": "up", b"\x1bOA": "up", b"\x1b[B": "down", b"\x1bOB": "down",
              b"\x1b[5~": "pgup", b"\x1b[6~": "pgdn", b"\x1b[H": "home", b"\x1b[1~": "home",
              b"\x1bOH": "home", b"\x1b[F": "end", b"\x1b[4~": "end", b"\x1bOF": "end"}
@@ -80,6 +82,8 @@ def fsize(path):
 
 
 def cwidth(s):
+    if s.isascii():
+        return len(s)
     w = 0
     chars = list(s)
     for i, ch in enumerate(chars):
@@ -101,9 +105,11 @@ def wrap_cells(s, width):
     """Rozdelit radek na kusy siroke nejvys `width` bunek terminalu."""
     if width < 4:
         width = 4
+    if s.isascii():
+        return [s[i:i + width] for i in range(0, len(s), width)] or [""]
     out, cur, w = [], "", 0
     for ch in s:
-        cw = cwidth(cur + ch) - w
+        cw = cwidth(cur[-1:] + ch) - cwidth(cur[-1:])      # sirka zavisi jen na sousednim znaku
         if w + cw > width and cur:
             out.append(cur)
             cur, w = "", 0
@@ -352,6 +358,7 @@ class Pane:
         self.goto_row = None
         self.jump = line > 0
         self.fd = sys.stdin.fileno()
+        self.pending = b""                  # zacatek sekvence, kterou cteni rozetlo
         self.dlg = None            # otevreny dialog (ask): (text, [(popisek, fn)])
         self.dlg_buf = None        # textove pole dialogu (bajty utf-8); None = neni
         self.dlg_hits = []         # tlacitka dialogu na obrazovce: (y, x0, x1, index)
@@ -650,11 +657,15 @@ class Pane:
             return None
         if not r:
             return None
-        data = os.read(self.fd, 256)
-        if not data:
+        chunk = os.read(self.fd, READ_SIZE)
+        if not chunk:
             raise SystemExit(0)
+        data, self.pending = self.pending + chunk, b""
         keys = []
         while data:
+            if RE_PART.fullmatch(data) or (len(chunk) == READ_SIZE and data in (b"\x1b", b"\x1b[")):
+                self.pending = data                # cteni sekvenci rozetlo: dokonci se priste
+                break
             m = RE_MOUSE.match(data)
             if m:
                 b = int(m.group(1))
@@ -680,7 +691,9 @@ class Pane:
             else:
                 keys.append(data[:1].decode("latin-1"))
                 data = data[1:]
-        return keys
+        last = max((i for i, k in enumerate(keys) if isinstance(k, tuple) and k[0] == "move"), default=-1)
+        return [k for i, k in enumerate(keys)            # z pohybu mysi plati jen posledni
+                if i == last or not (isinstance(k, tuple) and k[0] == "move")]
 
     def key(self, k, h):
         """Klavesa navic podtridy; True = zpracovana."""

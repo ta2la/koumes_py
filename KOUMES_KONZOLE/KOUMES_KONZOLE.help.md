@@ -73,7 +73,7 @@ panel number.
 | `clmon --tp1 --run 'COMMAND'` | runs a program in p1 |
 | `clmon --open-right PANE FILE[:N[:M]]` | in the panel right of tmux pane PANE; N = line, N:M = lines |
 | `clmon --tx1` | closes p1 |
-| `clmon --switch pN view\|hx\|dirview\|ext BIN` | switches how the panel shows its content |
+| `clmon --switch pN view\|hx\|dirview\|esence\|ext BIN` | switches how the panel shows its content |
 | `clmon --show-dir PATH` | that path or its directory in dirview, in p1 |
 
 ### Asking

@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "KOUMES_KONZOLE"))
 import config  # noqa: E402
 
 STATE = "aicom.t2l"               # in the aicom: records type: shrink / file: name of an item
+WHOLE = "."                       # that record with this name: the whole aicom differs from its default
 RE_Q = re.compile(r"^(\d{4})_q[1-4]$")
 AICOM = ".AICOM"
 LINKS = ".REMARKS"
@@ -68,6 +69,13 @@ def last(kind=AICOM):
     """The aicom to write to: the newest one, a new one when there is none."""
     d = dirs(kind)
     return d[-1] if d else new("", kind)
+
+
+def older(d, n):
+    """Up to n aicoms of the kind of d older than d, newest first."""
+    kind = AICOM if d.endswith(AICOM) else LINKS
+    all_ = dirs(kind)
+    return all_[:all_.index(d)][::-1][:n] if d in all_ else []
 
 
 def files(d):
